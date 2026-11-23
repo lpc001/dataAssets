@@ -42,6 +42,10 @@
           <el-option label="表" value="TABLE" />
           <el-option label="视图" value="VIEW" />
         </el-select>
+        <el-select v-model="filters.flag" placeholder="全部标记" clearable style="width: 130px" @change="reload">
+          <el-option label="系统表" value="SYSTEM" />
+          <el-option label="临时/备份" value="TEMP" />
+        </el-select>
         <el-input v-model="filters.keyword" placeholder="表名 / 注释" clearable style="width: 200px" @keyup.enter="reload" />
         <el-button type="primary" @click="reload">查询</el-button>
       </div>
@@ -123,6 +127,13 @@
           <el-descriptions-item label="建议归属域">{{ domainLabel(detail.suggested_domain) }}</el-descriptions-item>
           <el-descriptions-item label="远端状态">{{ detail.remote_status === 'ACTIVE' ? '在库' : '已消失' }}</el-descriptions-item>
         </el-descriptions>
+
+        <div class="d-flags">
+          <span class="d-flags-label">标记</span>
+          <el-check-tag :checked="detail.is_system" @change="toggleFlag('is_system', $event)">系统表</el-check-tag>
+          <el-check-tag :checked="detail.is_temp" @change="toggleFlag('is_temp', $event)">临时/备份</el-check-tag>
+          <span class="d-flags-hint">由表名/所属 schema 规则自动识别，可手动修正</span>
+        </div>
 
         <div class="d-sub">字段清单（{{ detail.columns.length }}）</div>
         <el-table :data="detail.columns" size="small" max-height="380">
@@ -261,6 +272,7 @@ import {
   listDomains,
   listResources,
   patchAsset,
+  patchResource,
   registerAssets,
   type Domain,
   type RegisterItem,
@@ -331,6 +343,7 @@ function statusDot(row: ResourceTable) {
 const filters = reactive({
   datasource_id: null as number | null,
   kind: '',
+  flag: '',
   keyword: '',
   page: 1,
   page_size: 20,
@@ -343,11 +356,7 @@ const QUICK_FILTERS = [
   { key: 'UNREGISTERED', label: '待登记' },
   { key: 'PUBLISHED', label: '已发布' },
   { key: 'OFFLINE', label: '已下线' },
-  { key: 'PUBLIC', label: '公共维度' },
-  { key: 'TOPIC', label: '跨域专题' },
   { key: 'OTHER', label: '未归类' },
-  { key: 'SYSTEM', label: '系统表' },
-  { key: 'TEMP', label: '临时/备份' },
 ]
 
 function applyQuick(key: string) {
@@ -388,9 +397,9 @@ async function reload() {
     const quick = quickFilter.value
     if (quick === 'UNREGISTERED') params.asset_status = 'UNREGISTERED'
     else if (quick === 'PUBLISHED' || quick === 'OFFLINE') params.asset_status = quick
-    else if (quick === 'PUBLIC' || quick === 'TOPIC' || quick === 'OTHER') params.group_type = quick
-    else if (quick === 'SYSTEM') params.is_system = true
-    else if (quick === 'TEMP') params.is_temp = true
+    else if (quick === 'OTHER') params.group_type = quick
+    if (filters.flag === 'SYSTEM') params.is_system = true
+    if (filters.flag === 'TEMP') params.is_temp = true
     if (filters.keyword) params.keyword = filters.keyword
     const res = await listResources(params)
     rows.value = res.items
@@ -481,6 +490,13 @@ async function onRepublish(row: ResourceTable) {
 async function openDetail(row: ResourceTable) {
   detail.value = await getResource(row.id)
   detailVisible.value = true
+}
+
+async function toggleFlag(field: 'is_system' | 'is_temp', value: boolean) {
+  if (!detail.value) return
+  await patchResource(detail.value.id, { [field]: value })
+  detail.value = await getResource(detail.value.id)
+  await Promise.all([reload(), loadSummary()])
 }
 
 onMounted(async () => {
@@ -615,6 +631,20 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 600;
   margin: 6px 0 10px;
+}
+.d-flags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.d-flags-label {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+.d-flags-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
 }
 .reg-hint {
   font-size: 12.5px;

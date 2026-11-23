@@ -183,6 +183,18 @@ def test_register_group_defaults_and_patch(db_session):
     assert (asset.group_type, asset.domain_code) == ("DOMAIN", "mkt")
 
 
+def test_patch_resource_flags(client, db_session):
+    ds = _make_datasource(db_session)
+    sync_datasource(db_session, ds, FakeAdapter([_table("tmp_import")]))
+    resource = db_session.query(ResourceTable).filter_by(table_name="tmp_import").one()
+    assert resource.is_temp is True
+
+    resp = client.patch(f"/api/v1/resources/{resource.id}", json={"is_temp": False, "is_system": True})
+    assert resp.status_code == 200
+    assert resp.json()["is_temp"] is False
+    assert resp.json()["is_system"] is True
+
+
 def test_domain_create_and_delete_guard(client, db_session):
     from app.models.asset import Asset
     from app.models.domain import Domain

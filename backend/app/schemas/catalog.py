@@ -153,6 +153,11 @@ class RegisterRequest(BaseModel):
     items: list[RegisterItem]
 
 
+class ResourcePatch(BaseModel):
+    is_temp: bool | None = None
+    is_system: bool | None = None
+
+
 class ResourcePage(BaseModel):
     items: list[ResourceTableOut]
     total: int

@@ -126,6 +126,10 @@ export function listResources(params: Record<string, unknown>): Promise<Resource
   return http.get('/resources', { params }).then((r) => r.data)
 }
 
+export function patchResource(id: number, payload: { is_temp?: boolean; is_system?: boolean }) {
+  return http.patch(`/resources/${id}`, payload).then((r) => r.data)
+}
+
 export function getResource(id: number): Promise<ResourceDetail> {
   return http.get(`/resources/${id}`).then((r) => r.data)
 }

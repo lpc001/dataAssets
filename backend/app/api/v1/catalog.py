@@ -28,6 +28,7 @@ from app.schemas.catalog import (
     ResourceColumnOut,
     ResourceDetail,
     ResourcePage,
+    ResourcePatch,
     ResourceTableOut,
     SubjectOut,
     SummaryOut,
@@ -178,6 +179,23 @@ def list_resources(
         out.asset_status = hit[1] if hit else None
         items.append(out)
     return ResourcePage(items=items, total=total)
+
+
+@router.patch("/resources/{resource_id}", response_model=ResourceTableOut)
+def patch_resource(
+    resource_id: int,
+    payload: ResourcePatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:catalog")),
+):
+    row = resource_crud.get(db, resource_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="资源不存在")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    db.commit()
+    db.refresh(row)
+    return ResourceTableOut.model_validate(row)
 
 
 @router.get("/resources/{resource_id}", response_model=ResourceDetail)
