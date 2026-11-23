@@ -126,6 +126,22 @@ export function listResources(params: Record<string, unknown>): Promise<Resource
   return http.get('/resources', { params }).then((r) => r.data)
 }
 
+export interface PreviewData {
+  columns: string[]
+  rows: (string | number | boolean | null)[][]
+  limit: number
+  schema_name: string
+  table_name: string
+}
+
+export function previewResource(id: number, limit = 20): Promise<PreviewData> {
+  return http.get(`/resources/${id}/preview`, { params: { limit } }).then((r) => r.data)
+}
+
+export function previewAsset(id: number, limit = 20): Promise<PreviewData> {
+  return http.get(`/assets/${id}/preview`, { params: { limit } }).then((r) => r.data)
+}
+
 export function patchResource(id: number, payload: { is_temp?: boolean; is_system?: boolean }) {
   return http.patch(`/resources/${id}`, payload).then((r) => r.data)
 }

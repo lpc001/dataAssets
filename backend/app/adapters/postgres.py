@@ -1,12 +1,34 @@
 """PostgreSQL 元数据适配器。"""
 
 import re
+from datetime import date, datetime
+from decimal import Decimal
+from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, text
 
 from app.adapters.base import MetadataAdapter, RemoteColumn, RemoteTable
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def build_url(host: str, port: int, database: str, username: str, password: str) -> str:
+    return (
+        f"postgresql+psycopg2://{username}:{quote_plus(password)}"
+        f"@{host}:{port}/{database}"
+    )
+
+
+def _json_value(value):
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat(sep=" ") if isinstance(value, datetime) else value.isoformat()
+    if isinstance(value, bytes):
+        return f"<binary {len(value)} bytes>"
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
 
 
 class PostgresAdapter(MetadataAdapter):
@@ -45,6 +67,20 @@ class PostgresAdapter(MetadataAdapter):
             return int(value or 0)
         except Exception:  # noqa: BLE001
             return None
+
+    def fetch_sample(self, schema: str, table: str, limit: int = 20) -> tuple[list[str], list[list]]:
+        """只读抽样：强制限行 + 10 秒超时，标识符走白名单校验。"""
+        if not _IDENT_RE.match(schema) or not _IDENT_RE.match(table):
+            raise ValueError("非法标识符")
+        limit = max(1, min(int(limit), 50))
+        with self._engine.connect() as conn:
+            conn.execute(text("set statement_timeout = '10000'"))
+            result = conn.execute(
+                text(f'select * from "{schema}"."{table}" limit :lim'), {"lim": limit}
+            )
+            columns = list(result.keys())
+            rows = [[_json_value(v) for v in row] for row in result.fetchall()]
+        return columns, rows
 
     def fetch_tables(self, schemas: list[str]) -> list[RemoteTable]:
         if not schemas:

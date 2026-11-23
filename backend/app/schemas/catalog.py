@@ -153,6 +153,14 @@ class RegisterRequest(BaseModel):
     items: list[RegisterItem]
 
 
+class PreviewOut(BaseModel):
+    columns: list[str]
+    rows: list[list]
+    limit: int
+    schema_name: str
+    table_name: str
+
+
 class ResourcePatch(BaseModel):
     is_temp: bool | None = None
     is_system: bool | None = None

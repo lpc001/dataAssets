@@ -14,6 +14,7 @@ from app.models.user import User
 from sqlalchemy import func
 
 from app.models.asset import Asset
+from app.models.datasource import DataSource
 from app.schemas.catalog import (
     AssetColumnOut,
     AssetColumnPatch,
@@ -27,6 +28,7 @@ from app.schemas.catalog import (
     RegisterRequest,
     ResourceColumnOut,
     ResourceDetail,
+    PreviewOut,
     ResourcePage,
     ResourcePatch,
     ResourceTableOut,
@@ -34,6 +36,7 @@ from app.schemas.catalog import (
     SummaryOut,
 )
 from app.services.permissions import require_perm
+from app.services.preview import preview_rows
 from app.services.register import register_resources
 
 router = APIRouter(tags=["资产目录"])
@@ -181,6 +184,30 @@ def list_resources(
     return ResourcePage(items=items, total=total)
 
 
+@router.get("/resources/{resource_id}/preview", response_model=PreviewOut)
+def preview_resource(
+    resource_id: int,
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:preview")),
+):
+    row = resource_crud.get(db, resource_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="资源不存在")
+    datasource = db.get(DataSource, row.datasource_id)
+    if datasource is None:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    try:
+        columns, rows = preview_rows(db, datasource, row, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"预览失败：{exc.__class__.__name__}") from exc
+    return PreviewOut(
+        columns=columns, rows=rows, limit=limit, schema_name=row.schema_name, table_name=row.table_name
+    )
+
+
 @router.patch("/resources/{resource_id}", response_model=ResourceTableOut)
 def patch_resource(
     resource_id: int,
@@ -259,6 +286,37 @@ def get_asset(
     detail = AssetDetail.model_validate(_asset_out(asset, resource))
     detail.columns = [AssetColumnOut(**c) for c in asset_crud.columns_with_type(db, asset.id)]
     return detail
+
+
+@router.get("/assets/{asset_id}/preview", response_model=PreviewOut)
+def preview_asset(
+    asset_id: int,
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:preview")),
+):
+    asset = asset_crud.get(db, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="资产不存在")
+    resource = asset_crud.resource_of(db, asset)
+    if resource is None:
+        raise HTTPException(status_code=404, detail="来源资源表不存在")
+    datasource = db.get(DataSource, resource.datasource_id)
+    if datasource is None:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    try:
+        columns, rows = preview_rows(db, datasource, resource, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"预览失败：{exc.__class__.__name__}") from exc
+    return PreviewOut(
+        columns=columns,
+        rows=rows,
+        limit=limit,
+        schema_name=resource.schema_name,
+        table_name=resource.table_name,
+    )
 
 
 @router.patch("/assets/{asset_id}", response_model=AssetOut)

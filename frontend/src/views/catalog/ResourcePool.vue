@@ -157,6 +157,7 @@
       </template>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button @click="openSample">示例数据</el-button>
         <el-button
           v-if="detail && detail.asset_id"
           type="primary"
@@ -174,6 +175,10 @@
         </el-button>
       </template>
     </el-drawer>
+
+    <el-dialog v-model="sampleVisible" :title="detail ? `示例数据 · ${detail.table_name}` : '示例数据'" width="900px">
+      <SampleData v-if="sampleVisible && detail" :fetcher="() => previewResource(detail!.id)" />
+    </el-dialog>
 
     <el-dialog v-model="registerVisible" :title="isBatch ? `登记为资产（${pending.length} 项）` : '登记为资产'" width="620px">
       <div class="reg-hint">登记后会立即发布到资产目录，可在资产详情里修改或下架。</div>
@@ -277,6 +282,7 @@ import {
   listResources,
   patchAsset,
   patchResource,
+  previewResource,
   registerAssets,
   type Domain,
   type RegisterItem,
@@ -284,6 +290,7 @@ import {
   type ResourceTable,
 } from '@/api/catalog'
 import { listDatasources, type DataSource } from '@/api/datasource'
+import SampleData from '@/components/SampleData.vue'
 
 const rows = ref<ResourceTable[]>([])
 const total = ref(0)
@@ -293,6 +300,7 @@ const domains = ref<Domain[]>([])
 const selection = ref<ResourceTable[]>([])
 const detailVisible = ref(false)
 const detail = ref<ResourceDetail | null>(null)
+const sampleVisible = ref(false)
 const registerVisible = ref(false)
 const registering = ref(false)
 const pending = ref<ResourceTable[]>([])
@@ -494,6 +502,10 @@ async function onRepublish(row: ResourceTable) {
 async function openDetail(row: ResourceTable) {
   detail.value = await getResource(row.id)
   detailVisible.value = true
+}
+
+function openSample() {
+  sampleVisible.value = true
 }
 
 async function toggleFlag(field: 'is_system' | 'is_temp', value: boolean) {

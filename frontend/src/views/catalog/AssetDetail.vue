@@ -111,6 +111,10 @@
           </el-table-column>
         </el-table>
       </el-tab-pane>
+
+      <el-tab-pane label="示例数据" name="sample">
+        <SampleData v-if="tab === 'sample' && asset" :fetcher="() => previewAsset(asset!.id)" />
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="colVisible" title="字段标注" width="480px">
@@ -145,11 +149,13 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SampleData from '@/components/SampleData.vue'
 import {
   getAsset,
   listDomains,
   patchAsset,
   patchAssetColumn,
+  previewAsset,
   type AssetColumn,
   type AssetDetail,
   type Domain,
