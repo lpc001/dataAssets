@@ -15,6 +15,13 @@ PERMISSIONS: list[tuple[str, str, str]] = [
     ("system:user", "用户管理", "系统管理"),
     ("system:role", "角色管理", "系统管理"),
     ("system:brand", "品牌设置", "系统管理"),
+    ("ast:datasource", "数据源管理", "数据资产"),
+    ("ast:catalog", "资产目录", "数据资产"),
+    ("ast:indicator", "指标中心", "数据资产"),
+    ("ast:lineage", "血缘", "数据资产"),
+    ("ast:preview", "数据预览", "数据资产"),
+    ("ast:preview:raw", "预览明文", "数据资产"),
+    ("ast:standard", "规范中心", "数据资产"),
 ]
 
 PERMISSION_NAMES: dict[str, str] = {code: name for code, name, _ in PERMISSIONS}
