@@ -10,12 +10,16 @@ from app.models.asset import Asset
 from app.models.asset_column import AssetColumn
 from app.models.caliber import Caliber
 from app.models.governance_rule import GovernanceRule
+from app.models.datasource import DataSource
 from app.models.indicator import Indicator
+from app.models.indicator_dimension import IndicatorDimension
 from app.models.indicator_version import IndicatorVersion
 from app.models.resource_column import ResourceColumn
 from app.models.resource_table import ResourceTable
 from app.models.user import User
 from app.schemas.indicator import (
+    AggregatePreviewIn,
+    AggregatePreviewOut,
     CaliberCreate,
     CaliberOut,
     CaliberUpdate,
@@ -24,10 +28,12 @@ from app.schemas.indicator import (
     IndicatorOut,
     IndicatorPage,
     IndicatorUpdate,
+    DimensionOut,
     PathOut,
     RuleOut,
     ValidationSummary,
 )
+from app.services.indicator_preview import aggregate_preview
 from app.services.indicator_validation import enabled_rules, summarize, validate_indicator
 from app.services.permissions import require_perm
 
@@ -58,6 +64,35 @@ def _path(db: Session, column_id: int | None) -> PathOut | None:
         data_type=rc.data_type if rc else None,
         domain_code=asset.domain_code,
     )
+
+
+def _dimension_type(data_type: str | None) -> str:
+    dtype = (data_type or "").lower()
+    return "TIME" if ("date" in dtype or "time" in dtype) else "CATEGORY"
+
+
+def _dimensions_out(db: Session, indicator_id: int) -> list[DimensionOut]:
+    rows = db.scalars(
+        select(IndicatorDimension)
+        .where(IndicatorDimension.indicator_id == indicator_id)
+        .order_by(IndicatorDimension.sort)
+    ).all()
+    result = []
+    for dim in rows:
+        column = db.get(AssetColumn, dim.asset_column_id)
+        rc = db.get(ResourceColumn, column.resource_column_id) if column else None
+        result.append(
+            DimensionOut(
+                id=dim.id,
+                asset_column_id=dim.asset_column_id,
+                column_name=column.column_name if column else "",
+                data_type=rc.data_type if rc else None,
+                dimension_type=dim.dimension_type,
+                time_grain=dim.time_grain,
+                alias=dim.alias,
+            )
+        )
+    return result
 
 
 def _next_code(db: Session, domain_code: str | None) -> str:
@@ -102,6 +137,8 @@ def _to_out(db: Session, indicator: Indicator, rules: set[str]) -> IndicatorOut:
         owner_name=indicator.owner_name,
         source_path=_path(db, indicator.source_asset_column_id),
         carry_path=_path(db, indicator.carry_asset_column_id),
+        aggregation=indicator.aggregation or "SUM",
+        dimensions=_dimensions_out(db, indicator.id),
         validation=ValidationSummary(block=summary["block"], warn=summary["warn"]),
     )
 
@@ -130,6 +167,68 @@ def list_indicators(
     ).all()
     rules = enabled_rules(db)
     return IndicatorPage(items=[_to_out(db, r, rules) for r in rows], total=int(total))
+
+
+@router.post("/indicators/preview", response_model=AggregatePreviewOut)
+def preview_indicator(
+    payload: AggregatePreviewIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    asset = db.get(Asset, payload.asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="资产不存在")
+    resource = db.get(ResourceTable, asset.resource_table_id)
+    if resource is None:
+        raise HTTPException(status_code=404, detail="来源资源表不存在")
+    datasource = db.get(DataSource, resource.datasource_id)
+    if datasource is None:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+
+    measure_name = None
+    if payload.measure_asset_column_id:
+        measure = db.get(AssetColumn, payload.measure_asset_column_id)
+        if measure is None or measure.asset_id != asset.id:
+            raise HTTPException(status_code=400, detail="度量字段不属于该资产")
+        measure_name = measure.column_name
+
+    dims = []
+    labels = []
+    for dim in payload.dimensions:
+        column = db.get(AssetColumn, dim.asset_column_id)
+        if column is None or column.asset_id != asset.id:
+            raise HTTPException(status_code=400, detail="维度字段不属于该资产")
+        rc = db.get(ResourceColumn, column.resource_column_id)
+        dim_type = _dimension_type(rc.data_type if rc else None)
+        if dim_type == "TIME" and not dim.time_grain:
+            raise HTTPException(status_code=400, detail="时间维度必须选择时间粒度")
+        dims.append(
+            {
+                "column": column.column_name,
+                "time_grain": dim.time_grain if dim_type == "TIME" else None,
+                "alias": column.column_name if dim_type != "TIME" else f"{column.column_name}_{(dim.time_grain or '').lower()}",
+            }
+        )
+        labels.append(dims[-1]["alias"])
+
+    try:
+        columns, rows = aggregate_preview(
+            datasource,
+            resource.schema_name,
+            resource.table_name,
+            measure_name,
+            payload.aggregation,
+            dims,
+            limit=20,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"预览失败：{exc.__class__.__name__}") from exc
+
+    measure_hint = f"{payload.aggregation}({measure_name})" if measure_name else "count(*)"
+    hint = f"{measure_hint}" + (f" 按 {', '.join(labels)}" if labels else "")
+    return AggregatePreviewOut(columns=columns, rows=rows, hint=hint)
 
 
 @router.get("/indicators/{indicator_id}", response_model=IndicatorDetail)
@@ -185,11 +284,14 @@ def create_indicator(
         raise HTTPException(status_code=400, detail="来源字段不存在")
     asset = db.get(Asset, column.asset_id)
     domain = payload.domain_code or (asset.domain_code if asset else None)
+    column_asset_id = column.asset_id
     code = payload.indicator_code or _next_code(db, domain)
     if db.scalars(select(Indicator).where(Indicator.indicator_code == code)).first():
         raise HTTPException(status_code=409, detail="指标编码已存在")
     row = Indicator(
-        **payload.model_dump(exclude={"indicator_code", "domain_code", "owner_name"}),
+        **payload.model_dump(
+            exclude={"indicator_code", "domain_code", "owner_name", "dimensions"}
+        ),
         indicator_code=code,
         domain_code=domain,
         status="DRAFT",
@@ -200,6 +302,23 @@ def create_indicator(
     )
     db.add(row)
     db.flush()
+    for index, dim in enumerate(payload.dimensions):
+        column = db.get(AssetColumn, dim.asset_column_id)
+        if column is None or column.asset_id != column_asset_id:
+            raise HTTPException(status_code=400, detail="维度字段必须与度量字段来自同一资产")
+        rc = db.get(ResourceColumn, column.resource_column_id)
+        dim_type = _dimension_type(rc.data_type if rc else None)
+        if dim_type == "TIME" and not dim.time_grain:
+            raise HTTPException(status_code=400, detail="时间维度必须选择时间粒度")
+        db.add(
+            IndicatorDimension(
+                indicator_id=row.id,
+                asset_column_id=dim.asset_column_id,
+                dimension_type=dim_type,
+                time_grain=dim.time_grain if dim_type == "TIME" else None,
+                sort=index,
+            )
+        )
     _record(db, "INDICATOR", row.id, user, {"action": "create"}, "创建指标")
     db.commit()
     db.refresh(row)
@@ -233,7 +352,31 @@ def update_indicator(
     if row is None:
         raise HTTPException(status_code=404, detail="指标不存在")
     data = payload.model_dump(exclude_unset=True)
-    changes = {}
+    changes: dict = {}
+    dimensions = data.pop("dimensions", None)
+    if dimensions is not None:
+        from sqlalchemy import delete as sql_delete
+
+        source = db.get(AssetColumn, row.source_asset_column_id) if row.source_asset_column_id else None
+        db.execute(sql_delete(IndicatorDimension).where(IndicatorDimension.indicator_id == row.id))
+        for index, dim in enumerate(dimensions):
+            column = db.get(AssetColumn, dim["asset_column_id"])
+            if column is None or source is None or column.asset_id != source.asset_id:
+                raise HTTPException(status_code=400, detail="维度字段必须与度量字段来自同一资产")
+            rc = db.get(ResourceColumn, column.resource_column_id)
+            dim_type = _dimension_type(rc.data_type if rc else None)
+            if dim_type == "TIME" and not dim.get("time_grain"):
+                raise HTTPException(status_code=400, detail="时间维度必须选择时间粒度")
+            db.add(
+                IndicatorDimension(
+                    indicator_id=row.id,
+                    asset_column_id=dim["asset_column_id"],
+                    dimension_type=dim_type,
+                    time_grain=dim.get("time_grain") if dim_type == "TIME" else None,
+                    sort=index,
+                )
+            )
+        changes["dimensions"] = {"new": len(dimensions)}
     for key, value in data.items():
         old = getattr(row, key)
         if old != value:

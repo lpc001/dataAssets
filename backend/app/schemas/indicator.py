@@ -18,6 +18,34 @@ class ValidationSummary(BaseModel):
     warn: int
 
 
+class DimensionIn(BaseModel):
+    asset_column_id: int
+    time_grain: str | None = None
+
+
+class DimensionOut(BaseModel):
+    id: int
+    asset_column_id: int
+    column_name: str
+    data_type: str | None = None
+    dimension_type: str
+    time_grain: str | None = None
+    alias: str | None = None
+
+
+class AggregatePreviewIn(BaseModel):
+    asset_id: int
+    measure_asset_column_id: int | None = None
+    aggregation: str = "SUM"
+    dimensions: list[DimensionIn] = []
+
+
+class AggregatePreviewOut(BaseModel):
+    columns: list[str]
+    rows: list[list]
+    hint: str
+
+
 class IndicatorCreate(BaseModel):
     indicator_code: str | None = Field(None, max_length=32)
     indicator_name: str = Field(..., max_length=128)
@@ -30,6 +58,8 @@ class IndicatorCreate(BaseModel):
     unit: str | None = None
     cycle: str | None = None
     source_asset_column_id: int
+    aggregation: str = "SUM"
+    dimensions: list[DimensionIn] = []
     carry_asset_column_id: int | None = None
     carry_type: str | None = None
     caliber_id: int | None = None
@@ -50,6 +80,8 @@ class IndicatorUpdate(BaseModel):
     carry_type: str | None = None
     caliber_id: int | None = None
     owner_name: str | None = None
+    aggregation: str | None = None
+    dimensions: list[DimensionIn] | None = None
 
 
 class IndicatorOut(BaseModel):
@@ -61,6 +93,8 @@ class IndicatorOut(BaseModel):
     unit: str | None
     cycle: str | None
     owner_name: str | None
+    aggregation: str = "SUM"
+    dimensions: list[DimensionOut] = []
     source_path: PathOut | None = None
     carry_path: PathOut | None = None
     validation: ValidationSummary

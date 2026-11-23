@@ -24,6 +24,8 @@ export interface Indicator {
   unit: string | null
   cycle: string | null
   owner_name: string | null
+  aggregation: string
+  dimensions: { id: number; asset_column_id: number; column_name: string; data_type: string | null; dimension_type: string; time_grain: string | null }[]
   source_path: PathInfo | null
   carry_path: PathInfo | null
   validation: ValidationInfo
@@ -56,6 +58,26 @@ export interface Caliber {
   caliber_kind: string
   status: string
   owner_name: string | null
+}
+
+export interface PreviewDimension {
+  asset_column_id: number
+  time_grain?: string | null
+}
+
+export interface AggregatePreview {
+  columns: string[]
+  rows: (string | number | boolean | null)[][]
+  hint: string
+}
+
+export function previewAggregate(payload: {
+  asset_id: number
+  measure_asset_column_id?: number | null
+  aggregation: string
+  dimensions: PreviewDimension[]
+}): Promise<AggregatePreview> {
+  return http.post('/indicators/preview', payload).then((r) => r.data)
 }
 
 export function listIndicators(params: Record<string, unknown>) {

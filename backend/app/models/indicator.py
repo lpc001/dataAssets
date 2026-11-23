@@ -22,7 +22,10 @@ class Indicator(Base):
     unit: Mapped[str | None] = mapped_column(String(16), nullable=True, comment="单位")
     cycle: Mapped[str | None] = mapped_column(String(8), nullable=True, comment="累计周期（日/月/年）")
     source_asset_column_id: Mapped[int | None] = mapped_column(
-        BigIntPK, ForeignKey("ast_asset_column.id"), nullable=True, comment="来源资产字段ID"
+        BigIntPK, ForeignKey("ast_asset_column.id"), nullable=True, comment="度量字段（来源资产字段ID）"
+    )
+    aggregation: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="SUM", comment="聚合方式（SUM/AVG/COUNT/MAX/MIN）"
     )
     carry_asset_column_id: Mapped[int | None] = mapped_column(
         BigIntPK, ForeignKey("ast_asset_column.id"), nullable=True, comment="承载资产字段ID"

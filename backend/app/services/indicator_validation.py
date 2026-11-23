@@ -10,6 +10,7 @@ from app.models.asset import Asset
 from app.models.asset_column import AssetColumn
 from app.models.governance_rule import GovernanceRule
 from app.models.indicator import Indicator
+from app.models.indicator_dimension import IndicatorDimension
 from app.models.resource_column import ResourceColumn
 
 CODE_RE = re.compile(r"^[A-Z]{2}\d{5}$")
@@ -121,6 +122,31 @@ def validate_indicator(db: Session, indicator: Indicator, enabled: set[str] | No
                     "BLOCK",
                     f"来源字段属于 {source_asset.domain_code or '公共'}，与指标域 {indicator.domain_code} 不一致",
                 )
+            )
+
+    dimensions = []
+    if indicator.id:
+        dimensions = db.scalars(
+            select(IndicatorDimension).where(IndicatorDimension.indicator_id == indicator.id)
+        ).all()
+
+    if on("R12"):
+        for dim in dimensions:
+            column = db.get(AssetColumn, dim.asset_column_id)
+            if column is None or source_col is None or column.asset_id != source_col.asset_id:
+                issues.append(_issue("R12", "维度同表", "BLOCK", "维度字段必须与度量字段来自同一张资产表"))
+
+    if on("R13"):
+        for dim in dimensions:
+            if dim.dimension_type == "TIME" and not dim.time_grain:
+                issues.append(_issue("R13", "时间粒度", "BLOCK", "时间维度必须选择时间粒度（年/季/月/日）"))
+
+    if on("R14") and source_col is not None and indicator.aggregation in {"SUM", "AVG"}:
+        rc = db.get(ResourceColumn, source_col.resource_column_id)
+        dtype = (rc.data_type or "").lower() if rc else ""
+        if dtype and not any(h in dtype for h in NUMERIC_HINTS):
+            issues.append(
+                _issue("R14", "聚合匹配", "BLOCK", f"度量字段类型为 {dtype}，不能使用求和/平均")
             )
 
     return issues

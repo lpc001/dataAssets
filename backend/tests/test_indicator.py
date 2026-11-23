@@ -54,6 +54,7 @@ def _payload(column_id, **overrides):
         "formula": "count(bank_code)",
         "unit": "个",
         "cycle": "月",
+        "aggregation": "COUNT",
         "source_asset_column_id": column_id,
     }
     payload.update(overrides)

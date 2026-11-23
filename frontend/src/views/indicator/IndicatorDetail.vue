@@ -51,6 +51,16 @@
               <span class="mono">{{ data.source_path.schema_name }}.{{ data.source_path.table_name }}.{{ data.source_path.column_name }}</span>
               <span class="type">{{ data.source_path.data_type }}</span>
             </div>
+            <div class="path-row"><span class="label">聚合方式</span>{{ aggLabel(data.aggregation) }}</div>
+            <div class="path-row">
+              <span class="label">统计维度</span>
+              <template v-if="data.dimensions.length">
+                <el-tag v-for="dim in data.dimensions" :key="dim.id" size="small" style="margin-right: 6px">
+                  {{ dim.column_name }}{{ dim.dimension_type === 'TIME' ? '（' + grainLabel(dim.time_grain) + '）' : '' }}
+                </el-tag>
+              </template>
+              <span v-else class="type">未设置维度（总计）</span>
+            </div>
             <div class="path-row"><span class="label">数据来源</span>由该资产所属数据源提供（只读）</div>
           </div>
           <el-alert v-else type="error" :closable="false" show-icon title="来源字段未挂载，无法发布" />
@@ -102,6 +112,16 @@ const UNITS = ['%', '元', 'm³', '户', '个', '次', '小时', '分钟', '秒'
 const form = reactive<any>({ indicator_name: '', indicator_def: '', formula: '', unit: '', cycle: '', owner_name: '' })
 
 const STATUS_LABELS: Record<string, string> = { DRAFT: '草稿', PUBLISHED: '已发布', RETIRED: '已废止' }
+const AGG_LABELS: Record<string, string> = { SUM: '求和', AVG: '平均', COUNT: '计数', MAX: '最大', MIN: '最小' }
+const GRAIN_LABELS: Record<string, string> = { YEAR: '年', QUARTER: '季', MONTH: '月', DAY: '日' }
+
+function aggLabel(value?: string) {
+  return value ? AGG_LABELS[value] || value : '—'
+}
+
+function grainLabel(value: string | null) {
+  return value ? GRAIN_LABELS[value] || value : '未指定'
+}
 
 function statusLabel(status?: string) {
   return status ? STATUS_LABELS[status] || status : ''
