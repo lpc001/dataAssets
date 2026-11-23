@@ -4,7 +4,7 @@
       <div>
         <el-button link type="primary" @click="$router.push('/indicators')">← 返回指标中心</el-button>
         <div class="page-title">新建指标</div>
-        <div class="page-sub">选数据 → 选度量 → 选维度 → 看结果 → 保存，不需要写 SQL</div>
+        <div class="page-sub">选数据 → 选度量 → 选维度（可关联其他资产）→ 看结果 → 保存</div>
       </div>
     </div>
 
@@ -19,7 +19,7 @@
               </el-select>
             </el-form-item>
             <el-form-item label="数据资产">
-              <el-select v-model="assetId" style="width: 380px" filterable placeholder="选择已发布的资产" :disabled="!domainCode" @change="onAssetChange">
+              <el-select v-model="assetId" style="width: 420px" filterable placeholder="选择已发布的资产" :disabled="!domainCode" @change="onAssetChange">
                 <el-option v-for="a in assets" :key="a.id" :label="`${a.asset_name}（${a.table_name}）`" :value="a.id" />
               </el-select>
             </el-form-item>
@@ -30,10 +30,9 @@
           <div class="panel-title"><span class="step">2</span> 统计什么（度量）</div>
           <el-form label-width="90px">
             <el-form-item label="度量字段">
-              <el-select v-model="measureId" style="width: 320px" placeholder="选择数值字段" :disabled="!assetId">
-                <el-option v-for="c in numericColumns" :key="c.id" :label="`${c.column_name}　${c.business_name || c.column_comment || ''}`" :value="c.id" />
+              <el-select v-model="measureId" style="width: 340px" placeholder="选择主资产上的数值字段" :disabled="!assetId">
+                <el-option v-for="c in numericColumns" :key="c.id" :label="labelOf(mainAssetName, c)" :value="c.id" />
               </el-select>
-              <span class="hint">聚合选"计数"时统计该字段的非空记录数</span>
             </el-form-item>
             <el-form-item label="聚合方式">
               <el-radio-group v-model="aggregation">
@@ -48,29 +47,54 @@
         </div>
 
         <div class="card panel">
-          <div class="panel-title"><span class="step">3</span> 按什么分（维度）</div>
+          <div class="panel-title">
+            <span class="step">3</span> 关联资产（可选）
+            <el-button size="small" text type="primary" :disabled="!assetId" @click="addJoin">+ 添加关联</el-button>
+          </div>
+          <div v-if="!joins.length" class="join-empty">没有关联资产时，只能使用主资产自己的字段做维度</div>
+          <div v-for="(join, index) in joins" :key="index" class="join-row">
+            <el-select v-model="join.asset_id" placeholder="关联资产" filterable style="width: 210px" @change="onJoinAssetChange(join)">
+              <el-option
+                v-for="a in joinableAssets"
+                :key="a.id"
+                :label="`${a.asset_name}（${a.table_name}）`"
+                :value="a.id"
+                :disabled="a.id === assetId"
+              />
+            </el-select>
+            <el-select v-model="join.left_column_id" placeholder="主表字段" filterable style="width: 150px">
+              <el-option v-for="c in mainColumns" :key="c.id" :label="c.column_name" :value="c.id" />
+            </el-select>
+            <span class="eq">=</span>
+            <el-select v-model="join.right_column_id" placeholder="关联表字段" filterable style="width: 150px">
+              <el-option v-for="c in joinColumns[join.asset_id || 0] || []" :key="c.id" :label="c.column_name" :value="c.id" />
+            </el-select>
+            <el-select v-model="join.join_type" style="width: 90px">
+              <el-option label="左连接" value="LEFT" />
+              <el-option label="内连接" value="INNER" />
+            </el-select>
+            <el-button size="small" text type="danger" @click="removeJoin(index)">移除</el-button>
+          </div>
+        </div>
+
+        <div class="card panel">
+          <div class="panel-title"><span class="step">4</span> 按什么分（维度）</div>
           <el-form label-width="90px">
             <el-form-item label="分类维度">
-              <el-select v-model="categoryIds" multiple collapse-tags collapse-tags-tooltip style="width: 420px" placeholder="选择分类字段（可多选）" :disabled="!assetId">
-                <el-option v-for="c in categoryColumns" :key="c.id" :label="`${c.column_name}　${c.business_name || c.column_comment || ''}`" :value="c.id" />
+              <el-select v-model="categoryIds" multiple collapse-tags collapse-tags-tooltip style="width: 420px" placeholder="选择字段（可多选）" :disabled="!assetId">
+                <el-option v-for="c in categoryColumns" :key="c.id" :label="labelOf(assetNameOf(c), c)" :value="c.id" />
               </el-select>
             </el-form-item>
             <el-form-item label="时间维度">
               <el-select v-model="timeColumnId" clearable style="width: 240px" placeholder="可选" :disabled="!assetId" @change="onTimeChange">
-                <el-option
-                  v-for="c in timeColumns"
-                  :key="c.id"
-                  :label="`${c.column_name}　${c.business_name || c.column_comment || ''}`"
-                  :value="c.id"
-                />
+                <el-option v-for="c in timeColumns" :key="c.id" :label="labelOf(assetNameOf(c), c)" :value="c.id" />
               </el-select>
-              <el-select v-if="timeColumnId" v-model="timeGrain" style="width: 130px; margin-left: 8px" @change="onGrainChange">
+              <el-select v-if="timeColumnId" v-model="timeGrain" style="width: 120px; margin-left: 8px" @change="onGrainChange">
                 <el-option label="按年" value="YEAR" />
                 <el-option label="按季" value="QUARTER" />
                 <el-option label="按月" value="MONTH" />
                 <el-option label="按日" value="DAY" />
               </el-select>
-              <span class="hint">如 bill_date（YYYY-MM-DD）可统计到月</span>
             </el-form-item>
             <el-form-item>
               <el-button type="primary" plain :loading="previewing" @click="onPreview">预览统计结果</el-button>
@@ -79,11 +103,11 @@
         </div>
 
         <div class="card panel">
-          <div class="panel-title"><span class="step">4</span> 保存为指标</div>
+          <div class="panel-title"><span class="step">5</span> 保存为指标</div>
           <el-form label-width="90px">
-            <el-form-item label="指标名称" required><el-input v-model="name" style="width: 320px" placeholder="如 售水量" /></el-form-item>
+            <el-form-item label="指标名称" required><el-input v-model="name" style="width: 320px" /></el-form-item>
             <el-form-item label="指标编码"><el-input v-model="code" style="width: 220px" placeholder="留空自动生成" /></el-form-item>
-            <el-form-item label="指标定义"><el-input v-model="definition" type="textarea" :rows="2" placeholder="一句话说明这个指标算什么" /></el-form-item>
+            <el-form-item label="指标定义"><el-input v-model="definition" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="单位">
               <el-select v-model="unit" style="width: 150px">
                 <el-option v-for="u in UNITS" :key="u" :label="u" :value="u" />
@@ -98,14 +122,8 @@
               </el-select>
               <span v-if="hasTimeDimension" class="hint">由时间维度自动确定（{{ cycle }}）</span>
             </el-form-item>
-            <el-form-item label="关联口径">
-              <el-select v-model="caliberId" clearable style="width: 360px" placeholder="可选">
-                <el-option v-for="c in calibers" :key="c.id" :label="`${c.caliber_code} ${c.caliber_name}`" :value="c.id" />
-              </el-select>
-            </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="saving" @click="onSubmit">保存草稿</el-button>
-              <span class="hint">保存后可去详情页校验并发布</span>
             </el-form-item>
           </el-form>
         </div>
@@ -130,17 +148,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getAsset, listAssets, listDomains, type Asset, type AssetColumn, type Domain } from '@/api/catalog'
-import { createIndicator, listCalibers, previewAggregate, type AggregatePreview, type Caliber } from '@/api/indicator'
+import { createIndicator, previewAggregate, type AggregatePreview } from '@/api/indicator'
 
 const router = useRouter()
 const domains = ref<Domain[]>([])
 const assets = ref<Asset[]>([])
+const allAssets = ref<Asset[]>([])
 const columns = ref<AssetColumn[]>([])
-const calibers = ref<Caliber[]>([])
+const joinColumns = reactive<Record<number, AssetColumn[]>>({})
 
 const domainCode = ref('')
 const assetId = ref<number | null>(null)
@@ -149,13 +168,13 @@ const aggregation = ref('SUM')
 const categoryIds = ref<number[]>([])
 const timeColumnId = ref<number | null>(null)
 const timeGrain = ref('MONTH')
+const joins = ref<{ asset_id: number | null; left_column_id: number | null; right_column_id: number | null; join_type: string }[]>([])
 
 const name = ref('')
 const code = ref('')
 const definition = ref('')
 const unit = ref('个')
 const cycle = ref('月')
-const caliberId = ref<number | null>(null)
 
 const previewing = ref(false)
 const saving = ref(false)
@@ -163,21 +182,51 @@ const preview = ref<AggregatePreview | null>(null)
 const UNITS = ['%', '元', 'm³', '户', '个', '次', '小时', '分钟', '秒', '元/m³']
 
 const GRAIN_CYCLE: Record<string, string> = { YEAR: '年', QUARTER: '季', MONTH: '月', DAY: '日' }
-
 const hasTimeDimension = computed(() => !!timeColumnId.value)
+const mainAssetName = computed(() => assets.value.find((a) => a.id === assetId.value)?.asset_name || '')
+const joinableAssets = computed(() => allAssets.value.filter((a) => a.id !== assetId.value))
+
+const mainColumns = computed(() => columns.value)
+const joinedColumns = computed(() => {
+  const result: { column: AssetColumn; assetName: string }[] = []
+  for (const join of joins.value) {
+    if (!join.asset_id) continue
+    const assetName = allAssets.value.find((a) => a.id === join.asset_id)?.asset_name || ''
+    for (const column of joinColumns[join.asset_id] || []) result.push({ column, assetName })
+  }
+  return result
+})
 
 const isTime = (t: string | null) => /date|time/i.test(t || '')
 const isNumeric = (t: string | null) => /int|numeric|decimal|float|double|real|money|number/i.test(t || '')
 
 const numericColumns = computed(() => columns.value.filter((c) => isNumeric(c.data_type)))
-const timeColumns = computed(() => columns.value.filter((c) => isTime(c.data_type)))
-const categoryColumns = computed(() =>
-  columns.value.filter((c) => !isNumeric(c.data_type) && !isTime(c.data_type)),
-)
+const timeOptions = computed(() => [
+  ...columns.value.filter((c) => isTime(c.data_type)).map((c) => ({ column: c, assetName: mainAssetName.value })),
+  ...joinedColumns.value.filter((x) => isTime(x.column.data_type)),
+])
+const categoryOptions = computed(() => [
+  ...columns.value.filter((c) => !isNumeric(c.data_type) && !isTime(c.data_type)).map((c) => ({ column: c, assetName: mainAssetName.value })),
+  ...joinedColumns.value.filter((x) => !isNumeric(x.column.data_type) && !isTime(x.column.data_type)),
+])
+const timeColumns = computed(() => timeOptions.value.map((x) => x.column))
+const categoryColumns = computed(() => categoryOptions.value.map((x) => x.column))
+
+function assetNameOf(column: AssetColumn) {
+  if (columns.value.some((c) => c.id === column.id)) return mainAssetName.value
+  const hit = joinedColumns.value.find((x) => x.column.id === column.id)
+  return hit?.assetName || ''
+}
+
+function labelOf(assetName: string, column: AssetColumn) {
+  const cn = column.business_name || column.column_comment || ''
+  return `${assetName}.${column.column_name}${cn ? '　' + cn : ''}`
+}
 
 async function onDomainChange() {
   assetId.value = null
   columns.value = []
+  joins.value = []
   preview.value = null
   const res = await listAssets({ domain_code: domainCode.value, status: 'PUBLISHED', page_size: 200 })
   assets.value = res.items
@@ -187,11 +236,30 @@ async function onAssetChange() {
   measureId.value = null
   categoryIds.value = []
   timeColumnId.value = null
+  joins.value = []
   preview.value = null
   if (!assetId.value) return
   const detail = await getAsset(assetId.value)
   columns.value = detail.columns
   if (!name.value) name.value = detail.asset_name
+}
+
+function addJoin() {
+  joins.value.push({ asset_id: null, left_column_id: null, right_column_id: null, join_type: 'LEFT' })
+}
+
+function removeJoin(index: number) {
+  joins.value.splice(index, 1)
+  categoryIds.value = categoryIds.value.filter((id) => columns.value.some((c) => c.id === id) || joinedColumns.value.some((x) => x.column.id === id))
+  if (timeColumnId.value && !timeColumns.value.some((c) => c.id === timeColumnId.value)) timeColumnId.value = null
+}
+
+async function onJoinAssetChange(join: any) {
+  join.right_column_id = null
+  if (join.asset_id && !joinColumns[join.asset_id]) {
+    const detail = await getAsset(join.asset_id)
+    joinColumns[join.asset_id] = detail.columns
+  }
 }
 
 function onTimeChange() {
@@ -207,13 +275,20 @@ function onGrainChange() {
   if (timeColumnId.value) cycle.value = GRAIN_CYCLE[timeGrain.value] || '月'
 }
 
-function buildDimensions(): { asset_column_id: number; time_grain?: string }[] {
-  const dims: { asset_column_id: number; time_grain?: string }[] = categoryIds.value.map((id) => ({
-    asset_column_id: id,
-  }))
-  if (timeColumnId.value) {
-    dims.push({ asset_column_id: timeColumnId.value, time_grain: timeGrain.value })
-  }
+function buildJoins() {
+  return joins.value
+    .filter((j) => j.asset_id && j.left_column_id && j.right_column_id)
+    .map((j) => ({
+      asset_id: j.asset_id as number,
+      left_asset_column_id: j.left_column_id as number,
+      right_asset_column_id: j.right_column_id as number,
+      join_type: j.join_type,
+    }))
+}
+
+function buildDimensions() {
+  const dims: { asset_column_id: number; time_grain?: string }[] = categoryIds.value.map((id) => ({ asset_column_id: id }))
+  if (timeColumnId.value) dims.push({ asset_column_id: timeColumnId.value, time_grain: timeGrain.value })
   return dims
 }
 
@@ -229,6 +304,7 @@ async function onPreview() {
       measure_asset_column_id: measureId.value,
       aggregation: aggregation.value,
       dimensions: buildDimensions(),
+      joins: buildJoins(),
     })
   } finally {
     previewing.value = false
@@ -236,12 +312,8 @@ async function onPreview() {
 }
 
 async function onSubmit() {
-  if (!assetId.value || !name.value) {
-    ElMessage.warning('请选择资产并填写指标名称')
-    return
-  }
-  if (!measureId.value) {
-    ElMessage.warning('请选择度量字段')
+  if (!assetId.value || !name.value || !measureId.value) {
+    ElMessage.warning('请选择资产、度量字段并填写指标名称')
     return
   }
   saving.value = true
@@ -253,10 +325,9 @@ async function onSubmit() {
       source_asset_column_id: measureId.value,
       aggregation: aggregation.value,
       dimensions: buildDimensions(),
+      joins: buildJoins(),
       unit: unit.value,
       cycle: cycle.value,
-      caliber_id: caliberId.value,
-      owner_name: '',
     })
     ElMessage.success(`已创建草稿 ${created.indicator_code}`)
     router.replace(`/indicators/${created.id}`)
@@ -267,7 +338,8 @@ async function onSubmit() {
 
 onMounted(async () => {
   domains.value = await listDomains()
-  calibers.value = (await listCalibers('INDICATOR')) as Caliber[]
+  const all = await listAssets({ status: 'PUBLISHED', page_size: 200 })
+  allAssets.value = all.items
 })
 </script>
 
@@ -298,6 +370,20 @@ onMounted(async () => {
 .hint {
   margin-left: 10px;
   font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.join-empty {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.join-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.eq {
   color: var(--color-text-secondary);
 }
 .preview-panel {

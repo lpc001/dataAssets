@@ -13,6 +13,7 @@ from app.models.governance_rule import GovernanceRule
 from app.models.datasource import DataSource
 from app.models.indicator import Indicator
 from app.models.indicator_dimension import IndicatorDimension
+from app.models.indicator_join import IndicatorJoin
 from app.models.indicator_version import IndicatorVersion
 from app.models.resource_column import ResourceColumn
 from app.models.resource_table import ResourceTable
@@ -21,6 +22,7 @@ from app.schemas.indicator import (
     AggregatePreviewIn,
     AggregatePreviewOut,
     CaliberCreate,
+    JoinOut,
     CaliberOut,
     CaliberUpdate,
     IndicatorCreate,
@@ -96,6 +98,28 @@ def _dimensions_out(db: Session, indicator_id: int) -> list[DimensionOut]:
     return result
 
 
+def _joins_out(db: Session, indicator_id: int) -> list[JoinOut]:
+    rows = db.scalars(
+        select(IndicatorJoin).where(IndicatorJoin.indicator_id == indicator_id).order_by(IndicatorJoin.sort)
+    ).all()
+    result = []
+    for join in rows:
+        asset = db.get(Asset, join.asset_id)
+        left = db.get(AssetColumn, join.left_asset_column_id)
+        right = db.get(AssetColumn, join.right_asset_column_id)
+        result.append(
+            JoinOut(
+                id=join.id,
+                asset_id=join.asset_id,
+                asset_name=asset.asset_name if asset else "",
+                left_column_name=left.column_name if left else "",
+                right_column_name=right.column_name if right else "",
+                join_type=join.join_type,
+            )
+        )
+    return result
+
+
 def _next_code(db: Session, domain_code: str | None) -> str:
     prefix = DOMAIN_PREFIX.get(domain_code or "", "IN")
     rows = db.scalars(
@@ -140,6 +164,7 @@ def _to_out(db: Session, indicator: Indicator, rules: set[str]) -> IndicatorOut:
         carry_path=_path(db, indicator.carry_asset_column_id),
         aggregation=indicator.aggregation or "SUM",
         dimensions=_dimensions_out(db, indicator.id),
+        joins=_joins_out(db, indicator.id),
         validation=ValidationSummary(block=summary["block"], warn=summary["warn"]),
     )
 
@@ -186,31 +211,67 @@ def preview_indicator(
     if datasource is None:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
+    alias_map = {asset.id: "t0"}
+    join_specs = []
+    for index, join in enumerate(payload.joins, start=1):
+        join_asset = db.get(Asset, join.asset_id)
+        if join_asset is None:
+            raise HTTPException(status_code=400, detail="关联资产不存在")
+        join_resource = db.get(ResourceTable, join_asset.resource_table_id)
+        if join_resource is None:
+            raise HTTPException(status_code=400, detail="关联资产来源表不存在")
+        if join_resource.datasource_id != resource.datasource_id:
+            raise HTTPException(status_code=400, detail="关联资产必须与主资产同一数据源")
+        left = db.get(AssetColumn, join.left_asset_column_id)
+        right = db.get(AssetColumn, join.right_asset_column_id)
+        if left is None or left.asset_id != asset.id:
+            raise HTTPException(status_code=400, detail="主表关联字段不属于主资产")
+        if right is None or right.asset_id != join.asset_id:
+            raise HTTPException(status_code=400, detail="关联表关联字段不属于关联资产")
+        alias = f"t{index}"
+        alias_map[join.asset_id] = alias
+        join_specs.append(
+            {
+                "alias": alias,
+                "schema": join_resource.schema_name,
+                "table": join_resource.table_name,
+                "left_column": left.column_name,
+                "right_column": right.column_name,
+                "join_type": join.join_type,
+            }
+        )
+
     measure_name = None
     if payload.measure_asset_column_id:
         measure = db.get(AssetColumn, payload.measure_asset_column_id)
         if measure is None or measure.asset_id != asset.id:
-            raise HTTPException(status_code=400, detail="度量字段不属于该资产")
+            raise HTTPException(status_code=400, detail="度量字段必须来自主资产")
         measure_name = measure.column_name
 
     dims = []
     labels = []
     for dim in payload.dimensions:
         column = db.get(AssetColumn, dim.asset_column_id)
-        if column is None or column.asset_id != asset.id:
-            raise HTTPException(status_code=400, detail="维度字段不属于该资产")
+        if column is None or column.asset_id not in alias_map:
+            raise HTTPException(status_code=400, detail="维度字段需来自主资产或已关联资产")
         rc = db.get(ResourceColumn, column.resource_column_id)
         dim_type = _dimension_type(rc.data_type if rc else None)
         if dim_type == "TIME" and not dim.time_grain:
             raise HTTPException(status_code=400, detail="时间维度必须选择时间粒度")
+        name = (
+            column.column_name
+            if dim_type != "TIME"
+            else f"{column.column_name}_{(dim.time_grain or '').lower()}"
+        )
         dims.append(
             {
+                "alias": alias_map[column.asset_id],
                 "column": column.column_name,
                 "time_grain": dim.time_grain if dim_type == "TIME" else None,
-                "alias": column.column_name if dim_type != "TIME" else f"{column.column_name}_{(dim.time_grain or '').lower()}",
+                "name": name,
             }
         )
-        labels.append(dims[-1]["alias"])
+        labels.append(name)
 
     try:
         columns, rows = aggregate_preview(
@@ -220,6 +281,7 @@ def preview_indicator(
             measure_name,
             payload.aggregation,
             dims,
+            joins=join_specs,
             limit=20,
         )
     except ValueError as exc:
@@ -291,7 +353,7 @@ def create_indicator(
         raise HTTPException(status_code=409, detail="指标编码已存在")
     row = Indicator(
         **payload.model_dump(
-            exclude={"indicator_code", "domain_code", "owner_name", "dimensions"}
+            exclude={"indicator_code", "domain_code", "owner_name", "dimensions", "joins"}
         ),
         indicator_code=code,
         domain_code=domain,
@@ -303,10 +365,11 @@ def create_indicator(
     )
     db.add(row)
     db.flush()
+    allowed_assets = {column_asset_id} | {j.asset_id for j in payload.joins}
     for index, dim in enumerate(payload.dimensions):
         column = db.get(AssetColumn, dim.asset_column_id)
-        if column is None or column.asset_id != column_asset_id:
-            raise HTTPException(status_code=400, detail="维度字段必须与度量字段来自同一资产")
+        if column is None or column.asset_id not in allowed_assets:
+            raise HTTPException(status_code=400, detail="维度字段需来自主资产或已关联资产")
         rc = db.get(ResourceColumn, column.resource_column_id)
         dim_type = _dimension_type(rc.data_type if rc else None)
         if dim_type == "TIME" and not dim.time_grain:
@@ -317,6 +380,30 @@ def create_indicator(
                 asset_column_id=dim.asset_column_id,
                 dimension_type=dim_type,
                 time_grain=dim.time_grain if dim_type == "TIME" else None,
+                sort=index,
+            )
+        )
+    seen_assets = set()
+    for index, join in enumerate(payload.joins):
+        if join.asset_id in seen_assets or join.asset_id == column_asset_id:
+            raise HTTPException(status_code=400, detail="关联资产重复")
+        seen_assets.add(join.asset_id)
+        join_asset = db.get(Asset, join.asset_id)
+        if join_asset is None:
+            raise HTTPException(status_code=400, detail="关联资产不存在")
+        left = db.get(AssetColumn, join.left_asset_column_id)
+        right = db.get(AssetColumn, join.right_asset_column_id)
+        if left is None or left.asset_id != column_asset_id:
+            raise HTTPException(status_code=400, detail="主表关联字段不属于主资产")
+        if right is None or right.asset_id != join.asset_id:
+            raise HTTPException(status_code=400, detail="关联表关联字段不属于关联资产")
+        db.add(
+            IndicatorJoin(
+                indicator_id=row.id,
+                asset_id=join.asset_id,
+                left_asset_column_id=join.left_asset_column_id,
+                right_asset_column_id=join.right_asset_column_id,
+                join_type=join.join_type,
                 sort=index,
             )
         )
@@ -364,15 +451,25 @@ def update_indicator(
     data = payload.model_dump(exclude_unset=True)
     changes: dict = {}
     dimensions = data.pop("dimensions", None)
+    joins = data.pop("joins", None)
     if dimensions is not None:
         from sqlalchemy import delete as sql_delete
 
         source = db.get(AssetColumn, row.source_asset_column_id) if row.source_asset_column_id else None
+        main_asset_id = source.asset_id if source else None
+        if joins is not None:
+            allowed = {main_asset_id} | {j["asset_id"] for j in joins}
+        else:
+            allowed = {main_asset_id} | set(
+                db.scalars(
+                    select(IndicatorJoin.asset_id).where(IndicatorJoin.indicator_id == row.id)
+                ).all()
+            )
         db.execute(sql_delete(IndicatorDimension).where(IndicatorDimension.indicator_id == row.id))
         for index, dim in enumerate(dimensions):
             column = db.get(AssetColumn, dim["asset_column_id"])
-            if column is None or source is None or column.asset_id != source.asset_id:
-                raise HTTPException(status_code=400, detail="维度字段必须与度量字段来自同一资产")
+            if column is None or column.asset_id not in allowed:
+                raise HTTPException(status_code=400, detail="维度字段需来自主资产或已关联资产")
             rc = db.get(ResourceColumn, column.resource_column_id)
             dim_type = _dimension_type(rc.data_type if rc else None)
             if dim_type == "TIME" and not dim.get("time_grain"):
@@ -390,6 +487,22 @@ def update_indicator(
         if time_dim:
             row.cycle = CYCLE_BY_GRAIN.get(time_dim["time_grain"], row.cycle)
         changes["dimensions"] = {"new": len(dimensions)}
+    if joins is not None:
+        from sqlalchemy import delete as sql_delete
+
+        db.execute(sql_delete(IndicatorJoin).where(IndicatorJoin.indicator_id == row.id))
+        for index, join in enumerate(joins):
+            db.add(
+                IndicatorJoin(
+                    indicator_id=row.id,
+                    asset_id=join["asset_id"],
+                    left_asset_column_id=join["left_asset_column_id"],
+                    right_asset_column_id=join["right_asset_column_id"],
+                    join_type=join.get("join_type", "LEFT"),
+                    sort=index,
+                )
+            )
+        changes["joins"] = {"new": len(joins)}
     for key, value in data.items():
         old = getattr(row, key)
         if old != value:

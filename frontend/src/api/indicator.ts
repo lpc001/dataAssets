@@ -26,6 +26,7 @@ export interface Indicator {
   owner_name: string | null
   aggregation: string
   dimensions: { id: number; asset_column_id: number; column_name: string; data_type: string | null; dimension_type: string; time_grain: string | null }[]
+  joins: { id: number; asset_id: number; asset_name: string; left_column_name: string; right_column_name: string; join_type: string }[]
   source_path: PathInfo | null
   carry_path: PathInfo | null
   validation: ValidationInfo
@@ -71,11 +72,19 @@ export interface AggregatePreview {
   hint: string
 }
 
+export interface PreviewJoin {
+  asset_id: number
+  left_asset_column_id: number
+  right_asset_column_id: number
+  join_type?: string
+}
+
 export function previewAggregate(payload: {
   asset_id: number
   measure_asset_column_id?: number | null
   aggregation: string
   dimensions: PreviewDimension[]
+  joins?: PreviewJoin[]
 }): Promise<AggregatePreview> {
   return http.post('/indicators/preview', payload).then((r) => r.data)
 }

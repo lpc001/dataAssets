@@ -63,6 +63,12 @@
               </template>
               <span v-else class="type">未设置维度（总计）</span>
             </div>
+            <div class="path-row" v-if="data.joins.length">
+              <span class="label">关联资产</span>
+              <el-tag v-for="j in data.joins" :key="j.id" size="small" style="margin-right: 6px">
+                {{ j.asset_name }}（{{ j.left_column_name }} = {{ j.right_column_name }}）
+              </el-tag>
+            </div>
             <div class="path-row"><span class="label">数据来源</span>由该资产所属数据源提供（只读）</div>
           </div>
           <el-alert v-else type="error" :closable="false" show-icon title="来源字段未挂载，无法发布" />

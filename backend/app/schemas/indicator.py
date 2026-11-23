@@ -18,6 +18,22 @@ class ValidationSummary(BaseModel):
     warn: int
 
 
+class JoinIn(BaseModel):
+    asset_id: int
+    left_asset_column_id: int
+    right_asset_column_id: int
+    join_type: str = "LEFT"
+
+
+class JoinOut(BaseModel):
+    id: int
+    asset_id: int
+    asset_name: str
+    left_column_name: str
+    right_column_name: str
+    join_type: str
+
+
 class DimensionIn(BaseModel):
     asset_column_id: int
     time_grain: str | None = None
@@ -38,6 +54,7 @@ class AggregatePreviewIn(BaseModel):
     measure_asset_column_id: int | None = None
     aggregation: str = "SUM"
     dimensions: list[DimensionIn] = []
+    joins: list[JoinIn] = []
 
 
 class AggregatePreviewOut(BaseModel):
@@ -60,6 +77,7 @@ class IndicatorCreate(BaseModel):
     source_asset_column_id: int
     aggregation: str = "SUM"
     dimensions: list[DimensionIn] = []
+    joins: list[JoinIn] = []
     carry_asset_column_id: int | None = None
     carry_type: str | None = None
     caliber_id: int | None = None
@@ -82,6 +100,7 @@ class IndicatorUpdate(BaseModel):
     owner_name: str | None = None
     aggregation: str | None = None
     dimensions: list[DimensionIn] | None = None
+    joins: list[JoinIn] | None = None
 
 
 class IndicatorOut(BaseModel):
@@ -95,6 +114,7 @@ class IndicatorOut(BaseModel):
     owner_name: str | None
     aggregation: str = "SUM"
     dimensions: list[DimensionOut] = []
+    joins: list[JoinOut] = []
     source_path: PathOut | None = None
     carry_path: PathOut | None = None
     validation: ValidationSummary

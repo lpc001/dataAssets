@@ -5,6 +5,7 @@ from app.models.caliber import Caliber
 from app.models.governance_rule import GovernanceRule
 from app.models.indicator import Indicator
 from app.models.indicator_dimension import IndicatorDimension
+from app.models.indicator_join import IndicatorJoin
 from app.models.indicator_version import IndicatorVersion
 from app.models.datasource import DataSource
 from app.models.domain import Domain
@@ -28,6 +29,7 @@ __all__ = [
     "GovernanceRule",
     "Indicator",
     "IndicatorDimension",
+    "IndicatorJoin",
     "IndicatorVersion",
     "DataSource",
     "Domain",

@@ -8,9 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.models.asset import Asset
 from app.models.asset_column import AssetColumn
+from app.models.resource_table import ResourceTable
 from app.models.governance_rule import GovernanceRule
 from app.models.indicator import Indicator
 from app.models.indicator_dimension import IndicatorDimension
+from app.models.indicator_join import IndicatorJoin
+from app.models.resource_column import ResourceColumn as _RC  # noqa: F401
 from app.models.resource_column import ResourceColumn
 
 CODE_RE = re.compile(r"^[A-Z]{2}\d{5}$")
@@ -130,11 +133,43 @@ def validate_indicator(db: Session, indicator: Indicator, enabled: set[str] | No
             select(IndicatorDimension).where(IndicatorDimension.indicator_id == indicator.id)
         ).all()
 
+    joins = []
+    if indicator.id:
+        joins = db.scalars(
+            select(IndicatorJoin).where(IndicatorJoin.indicator_id == indicator.id)
+        ).all()
+    allowed_assets = {source_asset.id} if source_asset else set()
+    allowed_assets |= {j.asset_id for j in joins}
+
     if on("R12"):
         for dim in dimensions:
             column = db.get(AssetColumn, dim.asset_column_id)
-            if column is None or source_col is None or column.asset_id != source_col.asset_id:
-                issues.append(_issue("R12", "维度同表", "BLOCK", "维度字段必须与度量字段来自同一张资产表"))
+            if column is None or column.asset_id not in allowed_assets:
+                issues.append(
+                    _issue("R12", "维度来源", "BLOCK", "维度字段必须来自度量所在资产或其关联资产")
+                )
+
+    if on("R15"):
+        for join in joins:
+            join_asset = db.get(Asset, join.asset_id)
+            if join_asset is None or join_asset.status != "PUBLISHED":
+                issues.append(_issue("R15", "关联资产有效", "BLOCK", "关联资产不存在或未发布"))
+
+    if on("R16") and source_asset is not None:
+        main_resource = db.get(ResourceTable, source_asset.resource_table_id) if source_asset else None
+        for join in joins:
+            join_asset = db.get(Asset, join.asset_id)
+            if join_asset is None:
+                continue
+            join_resource = db.get(ResourceTable, join_asset.resource_table_id)
+            if main_resource and join_resource and main_resource.datasource_id != join_resource.datasource_id:
+                issues.append(_issue("R16", "关联同源", "BLOCK", "关联资产必须与主资产来自同一数据源"))
+            left = db.get(AssetColumn, join.left_asset_column_id)
+            right = db.get(AssetColumn, join.right_asset_column_id)
+            if left is None or left.asset_id != (source_asset.id if source_asset else -1):
+                issues.append(_issue("R16", "关联字段有效", "BLOCK", "主表关联字段不属于主资产"))
+            if right is None or right.asset_id != join.asset_id:
+                issues.append(_issue("R16", "关联字段有效", "BLOCK", "关联表关联字段不属于关联资产"))
 
     if on("R13"):
         for dim in dimensions:
