@@ -39,6 +39,7 @@ export interface ResourceTable {
   remote_status: string
   registered: boolean
   asset_id: number | null
+  asset_status: string | null
 }
 
 export interface ResourceColumn {
@@ -71,6 +72,7 @@ export interface Asset {
   owner_name: string | null
   created_at: string | null
   resource_table_id: number
+  group_type: string
   schema_name: string
   table_name: string
   data_layer: string | null
@@ -130,6 +132,7 @@ export function getResource(id: number): Promise<ResourceDetail> {
 
 export interface RegisterItem {
   resource_id: number
+  group_type?: string | null
   asset_name?: string | null
   domain_code?: string | null
   trace_level?: string | null

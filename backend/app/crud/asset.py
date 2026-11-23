@@ -7,11 +7,13 @@ from app.models.resource_column import ResourceColumn
 from app.models.resource_table import ResourceTable
 from app.schemas.catalog import AssetPatch
 
+NO_DOMAIN_GROUPS = {"PUBLIC", "TOPIC", "OTHER"}
+
 
 def list_assets(
     db: Session,
     domain_code: str | None = None,
-    public_only: bool = False,
+    group_type: str | None = None,
     layer: str | None = None,
     status: str | None = None,
     keyword: str | None = None,
@@ -21,8 +23,8 @@ def list_assets(
     stmt = select(Asset, ResourceTable).join(ResourceTable, ResourceTable.id == Asset.resource_table_id)
     if domain_code:
         stmt = stmt.where(Asset.domain_code == domain_code)
-    if public_only:
-        stmt = stmt.where(Asset.domain_code.is_(None))
+    if group_type:
+        stmt = stmt.where(Asset.group_type == group_type)
     if layer:
         stmt = stmt.where(ResourceTable.suggested_layer == layer)
     if status:
@@ -80,8 +82,15 @@ def get_column(db: Session, column_id: int) -> AssetColumn | None:
 
 
 def patch(db: Session, asset: Asset, payload: AssetPatch) -> Asset:
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    for key, value in data.items():
         setattr(asset, key, value)
+    # 归类与域的联动：公共维度/跨域专题/未归类没有业务域；一旦给了域，归类回到业务域
+    if asset.group_type in NO_DOMAIN_GROUPS:
+        asset.domain_code = None
+        asset.owner_domain_code = None
+    elif data.get("domain_code"):
+        asset.group_type = "DOMAIN"
     db.commit()
     db.refresh(asset)
     return asset

@@ -57,6 +57,7 @@ class ResourceTableOut(BaseModel):
     remote_status: str
     registered: bool = False
     asset_id: int | None = None
+    asset_status: str | None = None
 
 
 class ResourceColumnOut(BaseModel):
@@ -100,6 +101,7 @@ class AssetOut(BaseModel):
     asset_code: str | None
     asset_name: str
     description: str | None
+    group_type: str
     domain_code: str | None
     subject_id: int | None
     owner_domain_code: str | None
@@ -120,6 +122,7 @@ class AssetDetail(AssetOut):
 
 class AssetPatch(BaseModel):
     asset_name: str | None = Field(None, max_length=128)
+    group_type: str | None = Field(None, max_length=16)
     description: str | None = None
     domain_code: str | None = Field(None, max_length=8)
     subject_id: int | None = None
@@ -138,6 +141,7 @@ class AssetColumnPatch(BaseModel):
 
 class RegisterItem(BaseModel):
     resource_id: int
+    group_type: str | None = Field(None, max_length=16)
     asset_name: str | None = Field(None, max_length=128)
     domain_code: str | None = Field(None, max_length=8)
     trace_level: str | None = Field(None, max_length=2)

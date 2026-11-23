@@ -21,13 +21,22 @@
     </div>
 
     <div class="card list-card">
+      <div class="quick-row">
+        <span class="quick-label">快速定位</span>
+        <span
+          v-for="q in QUICK_FILTERS"
+          :key="q.key"
+          class="chip"
+          :class="{ active: quickFilter === q.key }"
+          @click="applyQuick(q.key)"
+        >
+          {{ q.label }}
+        </span>
+      </div>
+
       <div class="filters">
         <el-select v-model="filters.datasource_id" placeholder="全部数据源" clearable style="width: 200px" @change="reload">
           <el-option v-for="d in datasources" :key="d.id" :label="d.name" :value="d.id" />
-        </el-select>
-        <el-select v-model="filters.registered" placeholder="全部状态" clearable style="width: 140px" @change="reload">
-          <el-option label="待登记" :value="false" />
-          <el-option label="已登记" :value="true" />
         </el-select>
         <el-select v-model="filters.kind" placeholder="全部对象" clearable style="width: 120px" @change="reload">
           <el-option label="表" value="TABLE" />
@@ -53,24 +62,32 @@
             <el-tag v-if="row.is_temp" size="small" type="warning" class="ml">临时/备份</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="建议归属" width="140">
+        <el-table-column label="建议归属" width="150">
           <template #default="{ row }">
-            <span class="suggest">{{ layerLabel(row.suggested_layer) }}</span>
-            <span class="suggest-sub">{{ domainLabel(row.suggested_domain) }}</span>
+            <span class="suggest">{{ suggestGroupLabel(row) }}</span>
+            <span class="suggest-sub">{{ suggestGroup(row) === 'DOMAIN' ? domainLabel(row.suggested_domain) : '' }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="row_count" label="行数" width="90" align="right" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <span class="status">
-              <i class="dot" :class="row.registered ? 'ok' : 'idle'" />
-              {{ row.registered ? '已登记' : '待登记' }}
+              <i class="dot" :class="statusDot(row)" />
+              {{ statusText(row) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" align="right">
+        <el-table-column label="操作" width="190" align="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" v-if="!row.registered" @click="openRegister([row])">登记</el-button>
+            <el-button v-if="!row.registered" size="small" type="primary" @click="openRegister([row])">登记</el-button>
+            <el-button
+              v-else-if="row.asset_status === 'OFFLINE'"
+              size="small"
+              type="success"
+              @click="onRepublish(row)"
+            >
+              重新发布
+            </el-button>
             <el-button size="small" text @click="openDetail(row)">查看</el-button>
           </template>
         </el-table-column>
@@ -133,6 +150,13 @@
           打开资产详情
         </el-button>
         <el-button v-else-if="detail" type="primary" @click="openRegister([detail])">登记为资产</el-button>
+        <el-button
+          v-if="detail && detail.asset_status === 'OFFLINE'"
+          type="success"
+          @click="onRepublish(detail)"
+        >
+          重新发布
+        </el-button>
       </template>
     </el-drawer>
 
@@ -146,8 +170,22 @@
         <el-form-item label="资产名称">
           <el-input v-model="regForm.asset_name" />
         </el-form-item>
+        <el-form-item label="归类">
+          <el-select v-model="regForm.group_type" style="width: 240px">
+            <el-option label="业务域" value="DOMAIN" />
+            <el-option label="公共维度" value="PUBLIC" />
+            <el-option label="跨域专题" value="TOPIC" />
+            <el-option label="未归类" value="OTHER" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="所属数据域">
-          <el-select v-model="regForm.domain_code" clearable style="width: 240px" placeholder="公共/跨域可不选">
+          <el-select
+            v-model="regForm.domain_code"
+            clearable
+            style="width: 240px"
+            :disabled="regForm.group_type !== 'DOMAIN'"
+            :placeholder="regForm.group_type === 'DOMAIN' ? '选择业务域' : '非业务域归类无需选择'"
+          >
             <el-option v-for="d in domains" :key="d.domain_code" :label="d.domain_name" :value="d.domain_code" />
           </el-select>
         </el-form-item>
@@ -179,8 +217,22 @@
           </el-table-column>
         </el-table>
         <el-form label-width="96px" label-position="left" class="batch-form">
+          <el-form-item label="统一归类">
+            <el-select v-model="regForm.group_type" clearable style="width: 240px" placeholder="不选则按各自建议">
+              <el-option label="业务域" value="DOMAIN" />
+              <el-option label="公共维度" value="PUBLIC" />
+              <el-option label="跨域专题" value="TOPIC" />
+              <el-option label="未归类" value="OTHER" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="统一归属域">
-            <el-select v-model="regForm.domain_code" clearable style="width: 240px" placeholder="不选则按各自建议">
+            <el-select
+              v-model="regForm.domain_code"
+              clearable
+              style="width: 240px"
+              :disabled="!!regForm.group_type && regForm.group_type !== 'DOMAIN'"
+              placeholder="不选则按各自建议"
+            >
               <el-option v-for="d in domains" :key="d.domain_code" :label="d.domain_name" :value="d.domain_code" />
             </el-select>
           </el-form-item>
@@ -202,12 +254,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   assetSummary,
   getResource,
   listDomains,
   listResources,
+  patchAsset,
   registerAssets,
   type Domain,
   type RegisterItem,
@@ -238,19 +291,70 @@ const summary = reactive({
 
 const regForm = reactive({
   asset_name: '',
+  group_type: 'DOMAIN',
   domain_code: '' as string | null,
   trace_level: '' as string | null,
   owner_name: '',
 })
 
+const GROUP_LABELS: Record<string, string> = {
+  PUBLIC: '公共维度',
+  TOPIC: '跨域专题',
+  OTHER: '未归类',
+}
+
+function suggestGroup(row: ResourceTable) {
+  if (row.suggested_layer === 'DIM') return 'PUBLIC'
+  if (row.suggested_layer === 'DWS' && !row.suggested_domain) return 'TOPIC'
+  if (!row.suggested_domain) return 'OTHER'
+  return 'DOMAIN'
+}
+
+function suggestGroupLabel(row: ResourceTable) {
+  const group = suggestGroup(row)
+  return group === 'DOMAIN' ? layerLabel(row.suggested_layer) : GROUP_LABELS[group] || group
+}
+
+function statusText(row: ResourceTable) {
+  if (!row.registered) return '待登记'
+  if (row.asset_status === 'OFFLINE') return '已下线'
+  if (row.asset_status === 'DRAFT') return '草稿'
+  return '已发布'
+}
+
+function statusDot(row: ResourceTable) {
+  if (!row.registered) return 'idle'
+  if (row.asset_status === 'OFFLINE') return 'warn'
+  return 'ok'
+}
+
 const filters = reactive({
   datasource_id: null as number | null,
-  registered: null as boolean | null,
   kind: '',
   keyword: '',
   page: 1,
   page_size: 20,
 })
+
+const quickFilter = ref('')
+
+const QUICK_FILTERS = [
+  { key: '', label: '全部' },
+  { key: 'UNREGISTERED', label: '待登记' },
+  { key: 'PUBLISHED', label: '已发布' },
+  { key: 'OFFLINE', label: '已下线' },
+  { key: 'PUBLIC', label: '公共维度' },
+  { key: 'TOPIC', label: '跨域专题' },
+  { key: 'OTHER', label: '未归类' },
+  { key: 'SYSTEM', label: '系统表' },
+  { key: 'TEMP', label: '临时/备份' },
+]
+
+function applyQuick(key: string) {
+  quickFilter.value = key
+  filters.page = 1
+  reload()
+}
 
 const unregistered = computed(() => Math.max(summary.resource_count - summary.asset_count, 0))
 const isBatch = computed(() => pending.value.length > 1)
@@ -280,8 +384,13 @@ async function reload() {
   try {
     const params: Record<string, unknown> = { page: filters.page, page_size: filters.page_size }
     if (filters.datasource_id) params.datasource_id = filters.datasource_id
-    if (filters.registered !== null) params.registered = filters.registered
     if (filters.kind) params.kind = filters.kind
+    const quick = quickFilter.value
+    if (quick === 'UNREGISTERED') params.asset_status = 'UNREGISTERED'
+    else if (quick === 'PUBLISHED' || quick === 'OFFLINE') params.asset_status = quick
+    else if (quick === 'PUBLIC' || quick === 'TOPIC' || quick === 'OTHER') params.group_type = quick
+    else if (quick === 'SYSTEM') params.is_system = true
+    else if (quick === 'TEMP') params.is_temp = true
     if (filters.keyword) params.keyword = filters.keyword
     const res = await listResources(params)
     rows.value = res.items
@@ -309,6 +418,7 @@ function openRegister(items: ResourceTable[]) {
   pending.value = targets
   Object.assign(regForm, {
     asset_name: targets[0].table_comment || targets[0].table_name,
+    group_type: isBatch.value ? '' : suggestGroup(targets[0]),
     domain_code: isBatch.value ? null : targets[0].suggested_domain,
     trace_level: isBatch.value ? null : targets[0].suggested_trace,
     owner_name: '',
@@ -325,21 +435,25 @@ async function submitRegister() {
   }
   registering.value = true
   try {
-    const items: RegisterItem[] = pending.value.map((r) =>
-      isBatch.value
+    const items: RegisterItem[] = pending.value.map((r) => {
+      const group = (isBatch.value ? regForm.group_type : regForm.group_type) || null
+      const domain = !group || group === 'DOMAIN' ? regForm.domain_code || null : null
+      return isBatch.value
         ? {
             resource_id: r.id,
-            domain_code: regForm.domain_code || null,
+            group_type: group,
+            domain_code: domain,
             owner_name: regForm.owner_name || null,
           }
         : {
             resource_id: r.id,
             asset_name: regForm.asset_name || null,
-            domain_code: regForm.domain_code || null,
+            group_type: group,
+            domain_code: domain,
             trace_level: regForm.trace_level || null,
             owner_name: regForm.owner_name || null,
-          },
-    )
+          }
+    })
     await registerAssets(datasourceId, items)
     ElMessage.success(`已登记 ${pending.value.length} 个资产`)
     registerVisible.value = false
@@ -348,6 +462,20 @@ async function submitRegister() {
   } finally {
     registering.value = false
   }
+}
+
+async function onRepublish(row: ResourceTable) {
+  const id = row.asset_id
+  if (!id) return
+  await ElMessageBox.confirm(`确认重新发布「${row.table_comment || row.table_name}」？`, '重新发布确认', {
+    type: 'info',
+    confirmButtonText: '确认发布',
+    cancelButtonText: '取消',
+  })
+  await patchAsset(id, { status: 'PUBLISHED' })
+  ElMessage.success('已重新发布')
+  detailVisible.value = false
+  await Promise.all([reload(), loadSummary()])
 }
 
 async function openDetail(row: ResourceTable) {
@@ -387,6 +515,38 @@ onMounted(async () => {
 }
 .list-card {
   padding: 14px 16px 16px;
+}
+.quick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.quick-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-right: 2px;
+}
+.chip {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.chip:hover {
+  border-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+.chip.active {
+  background: var(--color-tint);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
 }
 .filters {
   display: flex;

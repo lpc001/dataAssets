@@ -144,6 +144,10 @@ def list_resources(
     schema_name: str | None = None,
     kind: str | None = None,
     registered: bool | None = None,
+    group_type: str | None = None,
+    asset_status: str | None = None,
+    is_system: bool | None = None,
+    is_temp: bool | None = None,
     keyword: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -156,6 +160,10 @@ def list_resources(
         schema_name=schema_name,
         kind=kind,
         registered=registered,
+        group_type=group_type,
+        asset_status=asset_status,
+        is_system=is_system,
+        is_temp=is_temp,
         keyword=keyword,
         offset=(page - 1) * page_size,
         limit=page_size,
@@ -164,8 +172,10 @@ def list_resources(
     items = []
     for r in rows:
         out = ResourceTableOut.model_validate(r)
-        out.registered = r.id in assets
-        out.asset_id = assets.get(r.id)
+        hit = assets.get(r.id)
+        out.registered = hit is not None
+        out.asset_id = hit[0] if hit else None
+        out.asset_status = hit[1] if hit else None
         items.append(out)
     return ResourcePage(items=items, total=total)
 
@@ -181,8 +191,10 @@ def get_resource(
         raise HTTPException(status_code=404, detail="资源不存在")
     detail = ResourceDetail.model_validate(row)
     assets = resource_crud.asset_map(db, [row.id])
-    detail.registered = bool(assets)
-    detail.asset_id = assets.get(row.id)
+    hit = assets.get(row.id)
+    detail.registered = hit is not None
+    detail.asset_id = hit[0] if hit else None
+    detail.asset_status = hit[1] if hit else None
     detail.columns = [ResourceColumnOut.model_validate(c) for c in resource_crud.columns(db, row.id)]
     return detail
 
@@ -192,6 +204,7 @@ def get_resource(
 def list_assets(
     domain_code: str | None = None,
     public_only: bool = False,
+    group_type: str | None = None,
     layer: str | None = None,
     status: str | None = None,
     keyword: str | None = None,
@@ -203,7 +216,7 @@ def list_assets(
     rows, total = asset_crud.list_assets(
         db,
         domain_code=domain_code,
-        public_only=public_only,
+        group_type=group_type or ("PUBLIC" if public_only else None),
         layer=layer,
         status=status,
         keyword=keyword,

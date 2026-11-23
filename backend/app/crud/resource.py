@@ -12,6 +12,10 @@ def list_resources(
     schema_name: str | None = None,
     kind: str | None = None,
     registered: bool | None = None,
+    group_type: str | None = None,
+    asset_status: str | None = None,
+    is_system: bool | None = None,
+    is_temp: bool | None = None,
     keyword: str | None = None,
     offset: int = 0,
     limit: int = 50,
@@ -28,6 +32,36 @@ def list_resources(
         stmt = stmt.where(
             or_(ResourceTable.table_name.ilike(like), ResourceTable.table_comment.ilike(like))
         )
+    if is_system is not None:
+        stmt = stmt.where(ResourceTable.is_system.is_(is_system))
+    if is_temp is not None:
+        stmt = stmt.where(ResourceTable.is_temp.is_(is_temp))
+    if group_type == "PUBLIC":
+        stmt = stmt.where(ResourceTable.suggested_layer == "DIM")
+    elif group_type == "TOPIC":
+        stmt = stmt.where(
+            ResourceTable.suggested_layer == "DWS",
+            ResourceTable.suggested_domain.is_(None),
+        )
+    elif group_type == "OTHER":
+        stmt = stmt.where(
+            ResourceTable.suggested_domain.is_(None),
+            or_(
+                ResourceTable.suggested_layer.is_(None),
+                ResourceTable.suggested_layer.notin_(["DIM", "DWS"]),
+            ),
+        )
+    elif group_type == "DOMAIN":
+        stmt = stmt.where(ResourceTable.suggested_domain.isnot(None))
+    if asset_status:
+        if asset_status == "UNREGISTERED":
+            stmt = stmt.where(ResourceTable.id.not_in(select(Asset.resource_table_id)))
+        else:
+            stmt = stmt.where(
+                ResourceTable.id.in_(
+                    select(Asset.resource_table_id).where(Asset.status == asset_status)
+                )
+            )
     if registered is not None:
         registered_ids = select(Asset.resource_table_id)
         stmt = stmt.where(
@@ -64,14 +98,16 @@ def registered_ids(db: Session, resource_ids: list[int]) -> set[int]:
     )
 
 
-def asset_map(db: Session, resource_ids: list[int]) -> dict[int, int]:
-    """资源表 ID → 资产 ID（仅已登记的）。"""
+def asset_map(db: Session, resource_ids: list[int]) -> dict[int, tuple[int, str]]:
+    """资源表 ID → (资产 ID, 资产状态)（仅已登记的）。"""
     if not resource_ids:
         return {}
     rows = db.execute(
-        select(Asset.resource_table_id, Asset.id).where(Asset.resource_table_id.in_(resource_ids))
+        select(Asset.resource_table_id, Asset.id, Asset.status).where(
+            Asset.resource_table_id.in_(resource_ids)
+        )
     ).all()
-    return {r[0]: r[1] for r in rows}
+    return {r[0]: (r[1], r[2]) for r in rows}
 
 
 def summary(db: Session) -> dict:

@@ -14,31 +14,31 @@
 
     <div class="catalog-body">
       <aside class="domain-panel">
-        <div class="domain-item" :class="{ active: !filters.domain_code && !filters.public_only }" @click="pickDomain('')">
-          全部数据域
-        </div>
         <div
           class="domain-item"
-          :class="{ active: filters.public_only && filters.layer === 'DIM' }"
-          @click="pickDomain('__public__')"
+          :class="{ active: !filters.domain_code && !filters.group_type }"
+          @click="pickDomain('')"
         >
+          全部数据域
+        </div>
+        <div class="domain-item" :class="{ active: filters.group_type === 'PUBLIC' }" @click="pickGroup('PUBLIC')">
           <span>公共维度</span>
           <span class="code">跨域共享</span>
         </div>
-        <div
-          class="domain-item"
-          :class="{ active: filters.public_only && filters.layer === 'DWS' }"
-          @click="pickDomain('__cross__')"
-        >
+        <div class="domain-item" :class="{ active: filters.group_type === 'TOPIC' }" @click="pickGroup('TOPIC')">
           <span>跨域专题</span>
           <span class="code">产销差等</span>
+        </div>
+        <div class="domain-item" :class="{ active: filters.group_type === 'OTHER' }" @click="pickGroup('OTHER')">
+          <span>未归类</span>
+          <span class="code">待分配</span>
         </div>
         <div class="divider" />
         <div
           v-for="d in domains"
           :key="d.domain_code"
           class="domain-item"
-          :class="{ active: filters.domain_code === d.domain_code }"
+          :class="{ active: filters.domain_code === d.domain_code && filters.group_type === 'DOMAIN' }"
           @click="pickDomain(d.domain_code)"
         >
           <span>{{ d.domain_name }}</span>
@@ -64,8 +64,10 @@
         </div>
 
         <el-table :data="rows" class="card table-card" v-loading="loading" @row-click="openDetail">
-          <el-table-column label="域" width="120">
-            <template #default="{ row }">{{ domainName(row.domain_code) }}</template>
+          <el-table-column label="域 / 归类" width="130">
+            <template #default="{ row }">
+              {{ row.group_type && row.group_type !== 'DOMAIN' ? GROUP_LABELS[row.group_type] || row.group_type : domainName(row.domain_code) }}
+            </template>
           </el-table-column>
           <el-table-column prop="asset_code" label="资产编码" width="110">
             <template #default="{ row }"><span class="mono">{{ row.asset_code || '—' }}</span></template>
@@ -146,13 +148,19 @@ const summary = reactive({
 
 const filters = reactive({
   domain_code: '',
-  public_only: false,
+  group_type: '',
   layer: '',
   status: 'PUBLISHED',
   keyword: '',
   page: 1,
   page_size: 20,
 })
+
+const GROUP_LABELS: Record<string, string> = {
+  PUBLIC: '公共维度',
+  TOPIC: '跨域专题',
+  OTHER: '未归类',
+}
 
 const STATUS_LABELS: Record<string, string> = { PUBLISHED: '已发布', DRAFT: '草稿', OFFLINE: '已下线' }
 
@@ -185,7 +193,7 @@ async function reload() {
   try {
     const params: Record<string, unknown> = { page: filters.page, page_size: filters.page_size }
     if (filters.domain_code) params.domain_code = filters.domain_code
-    if (filters.public_only) params.public_only = true
+    if (filters.group_type) params.group_type = filters.group_type
     if (filters.layer) params.layer = filters.layer
     if (filters.status) params.status = filters.status
     if (filters.keyword) params.keyword = filters.keyword
@@ -197,28 +205,23 @@ async function reload() {
   }
 }
 
+function pickGroup(group: string) {
+  filters.group_type = group
+  filters.domain_code = ''
+  filters.layer = ''
+  filters.page = 1
+  reload()
+}
+
 function pickDomain(code: string) {
-  if (code === '__public__') {
-    filters.public_only = true
-    filters.domain_code = ''
-    filters.layer = 'DIM'
-  } else if (code === '__cross__') {
-    filters.public_only = true
-    filters.domain_code = ''
-    filters.layer = 'DWS'
-  } else {
-    filters.public_only = false
-    filters.domain_code = code
-    filters.layer = ''
-  }
+  filters.group_type = code ? 'DOMAIN' : ''
+  filters.domain_code = code
+  filters.layer = ''
   filters.page = 1
   reload()
 }
 
 function onLayerChange() {
-  if (filters.public_only && filters.layer && !['DIM', 'DWS'].includes(filters.layer)) {
-    filters.public_only = false
-  }
   filters.page = 1
   reload()
 }

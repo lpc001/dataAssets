@@ -10,7 +10,9 @@ from app.models.asset_column import AssetColumn
 from app.models.resource_column import ResourceColumn
 from app.models.resource_table import ResourceTable
 from app.schemas.catalog import RegisterItem
-from app.services.classify import owner_domain
+from app.services.classify import classify_group, owner_domain
+
+NO_DOMAIN_GROUPS = {"PUBLIC", "TOPIC", "OTHER"}
 
 
 def register_resources(
@@ -19,7 +21,7 @@ def register_resources(
     items: list[RegisterItem],
     operator: str | None = None,
 ) -> list[Asset]:
-    """批量登记；已登记的资源跳过。items 里的名称/域/追溯档可覆盖规则建议值。"""
+    """批量登记；已登记的资源跳过。items 里的归类/名称/域/追溯档可覆盖建议值。"""
     if not items:
         return []
     ids = [i.resource_id for i in items]
@@ -40,10 +42,15 @@ def register_resources(
         resource = resources.get(item.resource_id)
         if resource is None or resource.id in registered:
             continue
-        domain = item.domain_code if item.domain_code is not None else resource.suggested_domain
+        default_group = classify_group(resource.suggested_layer, resource.suggested_domain)
+        group = item.group_type or default_group
+        domain = None if group in NO_DOMAIN_GROUPS else (
+            item.domain_code if item.domain_code is not None else resource.suggested_domain
+        )
         asset = Asset(
             resource_table_id=resource.id,
             asset_name=item.asset_name or resource.table_comment or resource.table_name,
+            group_type=group,
             domain_code=domain,
             owner_domain_code=owner_domain(resource.table_name, domain),
             trace_level=item.trace_level if item.trace_level is not None else resource.suggested_trace,

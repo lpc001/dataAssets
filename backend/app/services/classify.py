@@ -47,6 +47,17 @@ def classify_table(table_name: str) -> tuple[str, str | None, str | None]:
     return "OTHER", None, None
 
 
+def classify_group(layer: str | None, domain_code: str | None) -> str:
+    """推导资产归类：公共维度 / 跨域专题 / 未归类 / 业务域。"""
+    if layer == "DIM":
+        return "PUBLIC"
+    if layer == "DWS" and domain_code is None:
+        return "TOPIC"
+    if domain_code is None:
+        return "OTHER"
+    return "DOMAIN"
+
+
 def owner_domain(table_name: str, domain_code: str | None) -> str | None:
     """公共维度的主责域：dim_cust / dim_meter 主责客户与营销域。"""
     name = (table_name or "").lower()

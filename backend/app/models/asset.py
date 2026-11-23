@@ -19,6 +19,9 @@ class Asset(Base):
     )
     asset_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="资产名称（业务中文名）")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="资产描述")
+    group_type: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="DOMAIN", comment="资产归类（DOMAIN业务域/PUBLIC公共维度/TOPIC跨域专题/OTHER未归类）"
+    )
     domain_code: Mapped[str | None] = mapped_column(String(8), nullable=True, comment="所属数据域")
     subject_id: Mapped[int | None] = mapped_column(
         BigIntPK, ForeignKey("ast_subject.id"), nullable=True, comment="所属业务过程"

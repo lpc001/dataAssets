@@ -12,7 +12,7 @@
       </div>
       <div class="tags" v-if="asset">
         <el-tag effect="plain">{{ layerLabel(asset.data_layer) }}</el-tag>
-        <el-tag type="info">域：{{ asset.domain_code || '公共' }}</el-tag>
+        <el-tag type="info">{{ groupLabel(asset) }}</el-tag>
         <el-tag :type="asset.status === 'PUBLISHED' ? 'success' : 'info'">{{ statusLabel(asset.status) }}</el-tag>
       </div>
     </div>
@@ -23,8 +23,22 @@
           <el-form-item label="资产名称">
             <el-input v-model="form.asset_name" />
           </el-form-item>
+          <el-form-item label="归类">
+            <el-select v-model="form.group_type" style="width: 240px">
+              <el-option label="业务域" value="DOMAIN" />
+              <el-option label="公共维度" value="PUBLIC" />
+              <el-option label="跨域专题" value="TOPIC" />
+              <el-option label="未归类" value="OTHER" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="所属数据域">
-            <el-select v-model="form.domain_code" clearable style="width: 240px" placeholder="公共/跨域可不选">
+            <el-select
+              v-model="form.domain_code"
+              clearable
+              style="width: 240px"
+              :disabled="form.group_type !== 'DOMAIN'"
+              :placeholder="form.group_type === 'DOMAIN' ? '选择业务域' : '非业务域归类无需选择'"
+            >
               <el-option v-for="d in domains" :key="d.domain_code" :label="d.domain_name" :value="d.domain_code" />
             </el-select>
           </el-form-item>
@@ -147,7 +161,28 @@ const saving = ref(false)
 const tab = ref('base')
 const asset = ref<AssetDetail | null>(null)
 const domains = ref<Domain[]>([])
-const form = reactive<any>({ asset_name: '', domain_code: '', trace_level: '', status: 'PUBLISHED', owner_name: '', description: '' })
+const form = reactive<any>({
+  asset_name: '',
+  group_type: 'DOMAIN',
+  domain_code: '',
+  trace_level: '',
+  status: 'PUBLISHED',
+  owner_name: '',
+  description: '',
+})
+
+const GROUP_LABELS: Record<string, string> = {
+  PUBLIC: '公共维度',
+  TOPIC: '跨域专题',
+  OTHER: '未归类',
+}
+
+function groupLabel(row: { group_type: string; domain_code: string | null }) {
+  if (row.group_type && row.group_type !== 'DOMAIN') {
+    return GROUP_LABELS[row.group_type] || row.group_type
+  }
+  return `业务域：${row.domain_code || '未选'}`
+}
 const colVisible = ref(false)
 const colForm = reactive<any>({ id: 0, column_name: '', column_comment: '', business_name: '', business_meaning: '', sensitive_level: 'L1', is_key: false })
 
@@ -174,6 +209,7 @@ async function load() {
     asset.value = detail
     Object.assign(form, {
       asset_name: detail.asset_name,
+      group_type: detail.group_type || 'DOMAIN',
       domain_code: detail.domain_code || '',
       trace_level: detail.trace_level || '',
       status: detail.status,
@@ -191,7 +227,8 @@ async function onSave() {
   try {
     await patchAsset(asset.value.id, {
       asset_name: form.asset_name,
-      domain_code: form.domain_code || null,
+      group_type: form.group_type,
+      domain_code: form.group_type === 'DOMAIN' ? form.domain_code || null : null,
       trace_level: form.trace_level || null,
       status: form.status,
       owner_name: form.owner_name || null,

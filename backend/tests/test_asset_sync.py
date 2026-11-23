@@ -152,6 +152,37 @@ def test_register_creates_asset_with_columns(db_session):
     assert db_session.query(Asset).count() == 1
 
 
+def test_register_group_defaults_and_patch(db_session):
+    from app.models.asset import Asset
+
+    ds = _make_datasource(db_session)
+    sync_datasource(db_session, ds, FakeAdapter([_table("dim_cust"), _table("dws_nrw_summary")]))
+    resources = {
+        r.table_name: r
+        for r in db_session.query(ResourceTable).filter(
+            ResourceTable.table_name.in_(["dim_cust", "dws_nrw_summary"])
+        )
+    }
+
+    created = register_resources(
+        db_session,
+        ds.id,
+        [RegisterItem(resource_id=resources["dim_cust"].id), RegisterItem(resource_id=resources["dws_nrw_summary"].id)],
+    )
+    groups = {a.asset_name: (a.group_type, a.domain_code) for a in created}
+    assert groups["dim_cust 注释"] == ("PUBLIC", None)
+    assert groups["dws_nrw_summary 注释"] == ("TOPIC", None)
+
+    # 归为业务域时清空原有归类限制
+    asset = db_session.query(Asset).filter_by(resource_table_id=resources["dim_cust"].id).one()
+    from app.schemas.catalog import AssetPatch
+    from app.crud import asset as asset_crud
+
+    asset_crud.patch(db_session, asset, AssetPatch(group_type="DOMAIN", domain_code="mkt"))
+    db_session.refresh(asset)
+    assert (asset.group_type, asset.domain_code) == ("DOMAIN", "mkt")
+
+
 def test_domain_create_and_delete_guard(client, db_session):
     from app.models.asset import Asset
     from app.models.domain import Domain
