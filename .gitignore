@@ -19,6 +19,7 @@ venv/
 node_modules/
 frontend/.tmp/
 frontend/dist/
+*.tsbuildinfo
 
 # 测试临时目录
 pytest-cache-files-*/

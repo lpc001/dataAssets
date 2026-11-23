@@ -1,5 +1,6 @@
 """初始化脚本：创建集团组织、管理员用户与管理员角色。可重复执行（幂等）。"""
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import Base, SessionLocal, engine
@@ -7,6 +8,7 @@ from app.core.security import hash_password
 from app.models.organization import Organization
 from app.models.role import Role
 from app.models.user import User
+from app.models.user_role import user_role
 
 
 def seed(db: Session) -> None:
@@ -31,17 +33,28 @@ def seed(db: Session) -> None:
         db.commit()
         db.refresh(admin_role)
 
-    # 管理员用户
-    if db.query(User).filter(User.username == "admin").first() is None:
-        db.add(
-            User(
-                username="admin",
-                name="系统管理员",
-                password_hash=hash_password("admin123"),
-                org_id=root.id,
-                status="ACTIVE",
-            )
+    # 管理员用户（幂等）
+    admin = db.query(User).filter(User.username == "admin").first()
+    if admin is None:
+        admin = User(
+            username="admin",
+            name="系统管理员",
+            password_hash=hash_password("admin123"),
+            org_id=root.id,
+            status="ACTIVE",
         )
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+
+    # 绑定管理员角色（幂等）：ADMIN 角色绕过全部功能权限校验，不绑定则 admin 无任何权限
+    bound = db.execute(
+        select(user_role.c.user_id).where(
+            user_role.c.user_id == admin.id, user_role.c.role_id == admin_role.id
+        )
+    ).first()
+    if bound is None:
+        db.execute(user_role.insert().values(user_id=admin.id, role_id=admin_role.id))
         db.commit()
 
 
