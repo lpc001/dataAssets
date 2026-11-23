@@ -78,12 +78,6 @@ const router = createRouter({
           meta: { title: '数据域', group: '数据资产', anyPerm: ['ast:catalog'] },
         },
         {
-          path: 'preview-audits',
-          name: 'preview-audits',
-          component: () => import('@/views/catalog/PreviewAudits.vue'),
-          meta: { title: '预览审计', group: '数据资产', anyPerm: ['ast:preview'] },
-        },
-        {
           path: 'catalog/:id',
           name: 'asset-detail',
           component: () => import('@/views/catalog/AssetDetail.vue'),

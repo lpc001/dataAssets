@@ -1,5 +1,5 @@
 <template>
-  <div class="sample">
+  <div class="preview">
     <div class="toolbar">
       <div class="tool-item">
         <span class="label">行数</span>
@@ -26,15 +26,11 @@
           <el-option v-for="c in allColumns" :key="c" :label="c" :value="c" />
         </el-select>
       </div>
-      <div class="tool-item" v-if="canRaw">
-        <span class="label">明文</span>
-        <el-switch v-model="raw" @change="reload" />
-      </div>
       <el-button :loading="loading" @click="reload">刷新</el-button>
     </div>
 
     <div class="hint">
-      只读抽样 · 最多 {{ limit }} 行
+      只读预览 · 最多 {{ limit }} 行
       <span v-if="data"> · {{ data.schema_name }}.{{ data.table_name }}（实返 {{ data.rows.length }} 行）</span>
       <span v-if="data && data.masked_columns.length" class="masked">
         · 已脱敏：{{ data.masked_columns.join('、') }}
@@ -61,16 +57,9 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useAuthStore } from '@/stores/auth'
 import type { PreviewData, PreviewQuery } from '@/api/catalog'
 
-const props = withDefaults(
-  defineProps<{ fetcher: (q: PreviewQuery) => Promise<PreviewData> }>(),
-  {},
-)
-
-const auth = useAuthStore()
-const canRaw = auth.hasPerm('ast:preview:raw')
+const props = defineProps<{ fetcher: (q: PreviewQuery) => Promise<PreviewData> }>()
 
 const loading = ref(false)
 const error = ref('')
@@ -79,7 +68,6 @@ const columns = ref<string[]>([])
 const rows = ref<PreviewData['rows']>([])
 const allColumns = ref<string[]>([])
 const limit = ref(20)
-const raw = ref(false)
 const selected = ref<string[]>([])
 
 async function reload() {
@@ -88,14 +76,13 @@ async function reload() {
   try {
     data.value = await props.fetcher({
       limit: limit.value,
-      raw: raw.value,
       columns: selected.value.length ? selected.value : undefined,
     })
     columns.value = data.value.columns
     rows.value = data.value.rows
     allColumns.value = data.value.all_columns
   } catch (e: any) {
-    error.value = e?.response?.data?.detail || '读取示例数据失败'
+    error.value = e?.response?.data?.detail || '读取数据预览失败'
   } finally {
     loading.value = false
   }
@@ -105,7 +92,7 @@ onMounted(reload)
 </script>
 
 <style scoped>
-.sample {
+.preview {
   min-height: 140px;
 }
 .toolbar {

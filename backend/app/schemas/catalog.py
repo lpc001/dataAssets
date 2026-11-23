@@ -163,21 +163,7 @@ class PreviewOut(BaseModel):
     all_columns: list[str] = []
 
 
-class PreviewAuditOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
 
-    id: int
-    username: str | None
-    object_type: str
-    object_id: int
-    schema_name: str
-    table_name: str
-    columns_text: str | None
-    row_limit: int
-    row_returned: int
-    masked: bool
-    client_ip: str | None
-    created_at: datetime
 
 
 class ResourcePatch(BaseModel):

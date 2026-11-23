@@ -20,7 +20,6 @@ PERMISSIONS: list[tuple[str, str, str]] = [
     ("ast:indicator", "指标中心", "数据资产"),
     ("ast:lineage", "血缘", "数据资产"),
     ("ast:preview", "数据预览", "数据资产"),
-    ("ast:preview:raw", "预览明文", "数据资产"),
     ("ast:standard", "规范中心", "数据资产"),
 ]
 

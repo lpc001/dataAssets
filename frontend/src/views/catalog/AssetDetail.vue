@@ -112,8 +112,8 @@
         </el-table>
       </el-tab-pane>
 
-      <el-tab-pane label="示例数据" name="sample">
-        <SampleData v-if="tab === 'sample' && asset" :fetcher="(q) => previewAsset(asset!.id, q)" />
+      <el-tab-pane label="数据预览" name="sample">
+        <DataPreview v-if="tab === 'sample' && asset" :fetcher="(q) => previewAsset(asset!.id, q)" />
       </el-tab-pane>
     </el-tabs>
 
@@ -149,7 +149,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import SampleData from '@/components/SampleData.vue'
+import DataPreview from '@/components/DataPreview.vue'
 import {
   getAsset,
   listDomains,

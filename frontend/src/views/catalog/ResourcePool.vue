@@ -157,7 +157,7 @@
       </template>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button @click="openSample">示例数据</el-button>
+        <el-button @click="openSample">数据预览</el-button>
         <el-button
           v-if="detail && detail.asset_id"
           type="primary"
@@ -176,8 +176,8 @@
       </template>
     </el-drawer>
 
-    <el-dialog v-model="sampleVisible" :title="detail ? `示例数据 · ${detail.table_name}` : '示例数据'" width="900px">
-      <SampleData v-if="sampleVisible && detail" :fetcher="(q) => previewResource(detail!.id, q)" />
+    <el-dialog v-model="sampleVisible" :title="detail ? `数据预览 · ${detail.table_name}` : '数据预览'" width="920px">
+      <DataPreview v-if="sampleVisible && detail" :fetcher="(q) => previewResource(detail!.id, q)" />
     </el-dialog>
 
     <el-dialog v-model="registerVisible" :title="isBatch ? `登记为资产（${pending.length} 项）` : '登记为资产'" width="620px">
@@ -290,7 +290,7 @@ import {
   type ResourceTable,
 } from '@/api/catalog'
 import { listDatasources, type DataSource } from '@/api/datasource'
-import SampleData from '@/components/SampleData.vue'
+import DataPreview from '@/components/DataPreview.vue'
 
 const rows = ref<ResourceTable[]>([])
 const total = ref(0)

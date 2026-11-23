@@ -6,7 +6,6 @@ from app.models.domain import Domain
 from app.models.meta_change import MetaChange
 from app.models.meta_version import MetaVersion
 from app.models.organization import Organization
-from app.models.preview_audit import PreviewAudit
 from app.models.resource_column import ResourceColumn
 from app.models.resource_table import ResourceTable
 from app.models.role import Role
@@ -25,7 +24,6 @@ __all__ = [
     "MetaChange",
     "MetaVersion",
     "Organization",
-    "PreviewAudit",
     "ResourceColumn",
     "ResourceTable",
     "Role",
