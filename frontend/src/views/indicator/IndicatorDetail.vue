@@ -27,11 +27,13 @@
               </el-select>
             </el-form-item>
             <el-form-item label="周期">
-              <el-select v-model="form.cycle" style="width: 160px">
+              <el-select v-model="form.cycle" style="width: 160px" :disabled="hasTimeDimension">
                 <el-option label="日" value="日" />
                 <el-option label="月" value="月" />
+                <el-option label="季" value="季" />
                 <el-option label="年" value="年" />
               </el-select>
+              <span v-if="hasTimeDimension" class="hint">由时间维度自动确定</span>
             </el-form-item>
             <el-form-item label="责任人"><el-input v-model="form.owner_name" style="width: 240px" /></el-form-item>
             <el-form-item>
@@ -97,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listDomains, type Domain } from '@/api/catalog'
@@ -112,6 +114,7 @@ const UNITS = ['%', '元', 'm³', '户', '个', '次', '小时', '分钟', '秒'
 const form = reactive<any>({ indicator_name: '', indicator_def: '', formula: '', unit: '', cycle: '', owner_name: '' })
 
 const STATUS_LABELS: Record<string, string> = { DRAFT: '草稿', PUBLISHED: '已发布', RETIRED: '已废止' }
+const hasTimeDimension = computed(() => !!data.value?.dimensions?.some((d) => d.dimension_type === 'TIME'))
 const AGG_LABELS: Record<string, string> = { SUM: '求和', AVG: '平均', COUNT: '计数', MAX: '最大', MIN: '最小' }
 const GRAIN_LABELS: Record<string, string> = { YEAR: '年', QUARTER: '季', MONTH: '月', DAY: '日' }
 

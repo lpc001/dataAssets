@@ -40,6 +40,7 @@ from app.services.permissions import require_perm
 router = APIRouter(tags=["指标中心"])
 
 DOMAIN_PREFIX = {"mkt": "BM", "svc": "BM"}
+CYCLE_BY_GRAIN = {"YEAR": "年", "QUARTER": "季", "MONTH": "月", "DAY": "日"}
 
 
 def _path(db: Session, column_id: int | None) -> PathOut | None:
@@ -319,6 +320,15 @@ def create_indicator(
                 sort=index,
             )
         )
+    db.flush()
+    time_dims = db.scalars(
+        select(IndicatorDimension).where(
+            IndicatorDimension.indicator_id == row.id,
+            IndicatorDimension.dimension_type == "TIME",
+        )
+    ).all()
+    if time_dims and time_dims[0].time_grain:
+        row.cycle = CYCLE_BY_GRAIN.get(time_dims[0].time_grain, row.cycle)
     _record(db, "INDICATOR", row.id, user, {"action": "create"}, "创建指标")
     db.commit()
     db.refresh(row)
@@ -376,6 +386,9 @@ def update_indicator(
                     sort=index,
                 )
             )
+        time_dim = next((d for d in dimensions if d.get("time_grain")), None)
+        if time_dim:
+            row.cycle = CYCLE_BY_GRAIN.get(time_dim["time_grain"], row.cycle)
         changes["dimensions"] = {"new": len(dimensions)}
     for key, value in data.items():
         old = getattr(row, key)

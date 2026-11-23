@@ -57,9 +57,14 @@
             </el-form-item>
             <el-form-item label="时间维度">
               <el-select v-model="timeColumnId" clearable style="width: 240px" placeholder="可选" :disabled="!assetId" @change="onTimeChange">
-                <el-option v-for="c in timeColumns" :key="c.id" :label="c.column_name" :value="c.id" />
+                <el-option
+                  v-for="c in timeColumns"
+                  :key="c.id"
+                  :label="`${c.column_name}　${c.business_name || c.column_comment || ''}`"
+                  :value="c.id"
+                />
               </el-select>
-              <el-select v-if="timeColumnId" v-model="timeGrain" style="width: 130px; margin-left: 8px">
+              <el-select v-if="timeColumnId" v-model="timeGrain" style="width: 130px; margin-left: 8px" @change="onGrainChange">
                 <el-option label="按年" value="YEAR" />
                 <el-option label="按季" value="QUARTER" />
                 <el-option label="按月" value="MONTH" />
@@ -85,11 +90,13 @@
               </el-select>
             </el-form-item>
             <el-form-item label="周期">
-              <el-select v-model="cycle" style="width: 150px">
+              <el-select v-model="cycle" style="width: 150px" :disabled="hasTimeDimension">
                 <el-option label="日" value="日" />
                 <el-option label="月" value="月" />
+                <el-option label="季" value="季" />
                 <el-option label="年" value="年" />
               </el-select>
+              <span v-if="hasTimeDimension" class="hint">由时间维度自动确定（{{ cycle }}）</span>
             </el-form-item>
             <el-form-item label="关联口径">
               <el-select v-model="caliberId" clearable style="width: 360px" placeholder="可选">
@@ -155,6 +162,10 @@ const saving = ref(false)
 const preview = ref<AggregatePreview | null>(null)
 const UNITS = ['%', '元', 'm³', '户', '个', '次', '小时', '分钟', '秒', '元/m³']
 
+const GRAIN_CYCLE: Record<string, string> = { YEAR: '年', QUARTER: '季', MONTH: '月', DAY: '日' }
+
+const hasTimeDimension = computed(() => !!timeColumnId.value)
+
 const isTime = (t: string | null) => /date|time/i.test(t || '')
 const isNumeric = (t: string | null) => /int|numeric|decimal|float|double|real|money|number/i.test(t || '')
 
@@ -184,7 +195,16 @@ async function onAssetChange() {
 }
 
 function onTimeChange() {
-  if (timeColumnId.value) timeGrain.value = 'MONTH'
+  if (timeColumnId.value) {
+    timeGrain.value = 'MONTH'
+    cycle.value = GRAIN_CYCLE[timeGrain.value] || '月'
+  } else {
+    cycle.value = '月'
+  }
+}
+
+function onGrainChange() {
+  if (timeColumnId.value) cycle.value = GRAIN_CYCLE[timeGrain.value] || '月'
 }
 
 function buildDimensions(): { asset_column_id: number; time_grain?: string }[] {
