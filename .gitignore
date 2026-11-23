@@ -1,0 +1,25 @@
+# 密钥文件（含加密密钥、真实连接配置）
+.secret_key
+backend/.secret_key
+.env
+backend/.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+
+# 本地数据库
+*.db
+*.sqlite3
+
+# 前端
+node_modules/
+frontend/.tmp/
+frontend/dist/
+
+# 测试临时目录
+pytest-cache-files-*/
+.pytest_cache/

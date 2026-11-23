@@ -1,0 +1,47 @@
+:root {
+  /* 主色 */
+  --color-primary: #0A84FF;
+  --color-primary-light: #5AC8FA;
+  --color-secondary: #0EA5E9;
+
+  /* 中性色 */
+  --color-bg: #F5FAFF;
+  --color-surface: #FFFFFF;
+  --color-tint: #EAF5FF;
+  --color-text: #0F2B46;
+  --color-text-secondary: #5B7083;
+  --color-border: #E1EEF9;
+
+  /* 语义色 */
+  --color-success: #16A34A;
+  --color-warning: #F59E0B;
+  --color-danger: #E23D6D;
+
+  /* 渐变 */
+  --gradient-primary: linear-gradient(135deg, #5AC8FA, #0A84FF);
+  --gradient-water: linear-gradient(to top, #0A84FF, #5AC8FA);
+
+  /* Element Plus 主题覆盖 */
+  --el-color-primary: #0A84FF;
+  --el-color-primary-light-3: #5AC8FA;
+  --el-color-primary-light-5: #8fd0ff;
+  --el-color-primary-light-7: #c4e6ff;
+  --el-color-primary-light-8: #dcf0ff;
+  --el-color-primary-light-9: #eaf5ff;
+  --el-color-primary-dark-2: #086dd6;
+  --el-border-radius-base: 8px;
+  --el-font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, 'Segoe UI', sans-serif;
+}
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, 'Segoe UI', sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+}
