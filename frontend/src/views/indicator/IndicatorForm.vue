@@ -62,12 +62,22 @@
                 :disabled="a.id === assetId"
               />
             </el-select>
-            <el-select v-model="join.left_column_id" placeholder="主表字段" filterable style="width: 150px">
-              <el-option v-for="c in mainColumns" :key="c.id" :label="c.column_name" :value="c.id" />
+            <el-select v-model="join.left_column_id" placeholder="主表字段" filterable style="width: 190px">
+              <el-option
+                v-for="c in mainJoinColumns"
+                :key="c.id"
+                :label="joinLabel(c, mainAssetName)"
+                :value="c.id"
+              />
             </el-select>
             <span class="eq">=</span>
-            <el-select v-model="join.right_column_id" placeholder="关联表字段" filterable style="width: 150px">
-              <el-option v-for="c in joinColumns[join.asset_id || 0] || []" :key="c.id" :label="c.column_name" :value="c.id" />
+            <el-select v-model="join.right_column_id" placeholder="关联表字段" filterable style="width: 190px">
+              <el-option
+                v-for="c in joinKeyColumns(join.asset_id)"
+                :key="c.id"
+                :label="joinLabel(c, joinAssetName(join.asset_id))"
+                :value="c.id"
+              />
             </el-select>
             <el-select v-model="join.join_type" style="width: 90px">
               <el-option label="左连接" value="LEFT" />
@@ -186,7 +196,22 @@ const hasTimeDimension = computed(() => !!timeColumnId.value)
 const mainAssetName = computed(() => assets.value.find((a) => a.id === assetId.value)?.asset_name || '')
 const joinableAssets = computed(() => allAssets.value.filter((a) => a.id !== assetId.value))
 
-const mainColumns = computed(() => columns.value)
+const mainJoinColumns = computed(() => columns.value.filter((c) => !isNumeric(c.data_type)))
+
+function joinKeyColumns(assetId: number | null) {
+  if (!assetId) return []
+  return (joinColumns[assetId] || []).filter((c) => !isNumeric(c.data_type))
+}
+
+function joinAssetName(assetId: number | null) {
+  if (!assetId) return ''
+  return allAssets.value.find((a) => a.id === assetId)?.asset_name || ''
+}
+
+function joinLabel(column: AssetColumn, assetName: string) {
+  const cn = column.business_name || column.column_comment || ''
+  return `${column.column_name}${cn ? '　' + cn : ''}${assetName ? '（' + assetName + '）' : ''}`
+}
 const joinedColumns = computed(() => {
   const result: { column: AssetColumn; assetName: string }[] = []
   for (const join of joins.value) {
