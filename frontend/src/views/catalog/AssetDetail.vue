@@ -104,9 +104,10 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="90" fixed="right">
+          <el-table-column label="操作" width="160" fixed="right">
             <template #default="{ row }">
-              <el-button size="small" @click="openColumn(row)">标注</el-button>
+              <el-button size="small" text @click="openColumn(row)">标注</el-button>
+              <el-button size="small" text type="primary" @click="createIndicator(row)">建指标</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -147,7 +148,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DataPreview from '@/components/DataPreview.vue'
 import {
@@ -162,6 +163,7 @@ import {
 } from '@/api/catalog'
 
 const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const saving = ref(false)
 const tab = ref('base')
@@ -260,6 +262,11 @@ async function toggleStatus(target: 'OFFLINE' | 'PUBLISHED') {
   await patchAsset(asset.value.id, { status: target })
   ElMessage.success(`已${label}`)
   await load()
+}
+
+function createIndicator(row: AssetColumn) {
+  if (!asset.value) return
+  router.push(`/indicators/new?asset=${asset.value.id}&column=${row.id}`)
 }
 
 function openColumn(row: AssetColumn) {

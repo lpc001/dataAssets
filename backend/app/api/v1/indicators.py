@@ -1,0 +1,345 @@
+import json
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.models.asset import Asset
+from app.models.asset_column import AssetColumn
+from app.models.caliber import Caliber
+from app.models.governance_rule import GovernanceRule
+from app.models.indicator import Indicator
+from app.models.indicator_version import IndicatorVersion
+from app.models.resource_column import ResourceColumn
+from app.models.resource_table import ResourceTable
+from app.models.user import User
+from app.schemas.indicator import (
+    CaliberCreate,
+    CaliberOut,
+    CaliberUpdate,
+    IndicatorCreate,
+    IndicatorDetail,
+    IndicatorOut,
+    IndicatorPage,
+    IndicatorUpdate,
+    PathOut,
+    RuleOut,
+    ValidationSummary,
+)
+from app.services.indicator_validation import enabled_rules, summarize, validate_indicator
+from app.services.permissions import require_perm
+
+router = APIRouter(tags=["指标中心"])
+
+DOMAIN_PREFIX = {"mkt": "BM", "svc": "BM"}
+
+
+def _path(db: Session, column_id: int | None) -> PathOut | None:
+    if not column_id:
+        return None
+    column = db.get(AssetColumn, column_id)
+    if column is None:
+        return None
+    asset = db.get(Asset, column.asset_id)
+    if asset is None:
+        return None
+    resource = db.get(ResourceTable, asset.resource_table_id)
+    rc = db.get(ResourceColumn, column.resource_column_id)
+    if resource is None:
+        return None
+    return PathOut(
+        asset_id=asset.id,
+        asset_name=asset.asset_name,
+        schema_name=resource.schema_name,
+        table_name=resource.table_name,
+        column_name=column.column_name,
+        data_type=rc.data_type if rc else None,
+        domain_code=asset.domain_code,
+    )
+
+
+def _next_code(db: Session, domain_code: str | None) -> str:
+    prefix = DOMAIN_PREFIX.get(domain_code or "", "IN")
+    rows = db.scalars(
+        select(Indicator.indicator_code).where(Indicator.indicator_code.like(f"{prefix}%"))
+    ).all()
+    numbers = [int(r[len(prefix):]) for r in rows if r[len(prefix):].isdigit()]
+    return f"{prefix}{(max(numbers) if numbers else 0) + 1:05d}"
+
+
+def _record(db: Session, obj_type: str, obj_id: int, user: User, changes: dict, comment: str) -> None:
+    last = db.scalar(
+        select(func.max(IndicatorVersion.version_no)).where(
+            IndicatorVersion.object_type == obj_type, IndicatorVersion.object_id == obj_id
+        )
+    ) or 0
+    db.add(
+        IndicatorVersion(
+            object_type=obj_type,
+            object_id=obj_id,
+            version_no=int(last) + 1,
+            changed_by=user.username,
+            changed_at=datetime.now(),
+            changes=json.dumps(changes, ensure_ascii=False),
+            comment=comment,
+        )
+    )
+
+
+def _to_out(db: Session, indicator: Indicator, rules: set[str]) -> IndicatorOut:
+    issues = validate_indicator(db, indicator, rules)
+    summary = summarize(issues)
+    return IndicatorOut(
+        id=indicator.id,
+        indicator_code=indicator.indicator_code,
+        indicator_name=indicator.indicator_name,
+        domain_code=indicator.domain_code,
+        status=indicator.status,
+        unit=indicator.unit,
+        cycle=indicator.cycle,
+        owner_name=indicator.owner_name,
+        source_path=_path(db, indicator.source_asset_column_id),
+        carry_path=_path(db, indicator.carry_asset_column_id),
+        validation=ValidationSummary(block=summary["block"], warn=summary["warn"]),
+    )
+
+
+@router.get("/indicators", response_model=IndicatorPage)
+def list_indicators(
+    domain_code: str | None = None,
+    status: str | None = None,
+    keyword: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    stmt = select(Indicator)
+    if domain_code:
+        stmt = stmt.where(Indicator.domain_code == domain_code)
+    if status:
+        stmt = stmt.where(Indicator.status == status)
+    if keyword:
+        like = f"%{keyword}%"
+        stmt = stmt.where(or_(Indicator.indicator_code.ilike(like), Indicator.indicator_name.ilike(like)))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    rows = db.scalars(
+        stmt.order_by(Indicator.domain_code, Indicator.indicator_code).offset((page - 1) * page_size).limit(page_size)
+    ).all()
+    rules = enabled_rules(db)
+    return IndicatorPage(items=[_to_out(db, r, rules) for r in rows], total=int(total))
+
+
+@router.get("/indicators/{indicator_id}", response_model=IndicatorDetail)
+def get_indicator(
+    indicator_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    row = db.get(Indicator, indicator_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="指标不存在")
+    rules = enabled_rules(db)
+    base = _to_out(db, row, rules)
+    issues = validate_indicator(db, row, rules)
+    versions = db.scalars(
+        select(IndicatorVersion)
+        .where(IndicatorVersion.object_type == "INDICATOR", IndicatorVersion.object_id == row.id)
+        .order_by(IndicatorVersion.version_no.desc())
+    ).all()
+    return IndicatorDetail(
+        **base.model_dump(),
+        theme=row.theme,
+        indicator_level=row.indicator_level,
+        indicator_type=row.indicator_type,
+        indicator_def=row.indicator_def,
+        formula=row.formula,
+        caliber_id=row.caliber_id,
+        carry_type=row.carry_type,
+        source_type=row.source_type,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        issues=issues,
+        versions=[
+            {
+                "version_no": v.version_no,
+                "changed_by": v.changed_by,
+                "changed_at": v.changed_at,
+                "comment": v.comment,
+            }
+            for v in versions
+        ],
+    )
+
+
+@router.post("/indicators", response_model=IndicatorDetail, status_code=201)
+def create_indicator(
+    payload: IndicatorCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    column = db.get(AssetColumn, payload.source_asset_column_id)
+    if column is None:
+        raise HTTPException(status_code=400, detail="来源字段不存在")
+    asset = db.get(Asset, column.asset_id)
+    domain = payload.domain_code or (asset.domain_code if asset else None)
+    code = payload.indicator_code or _next_code(db, domain)
+    if db.scalars(select(Indicator).where(Indicator.indicator_code == code)).first():
+        raise HTTPException(status_code=409, detail="指标编码已存在")
+    row = Indicator(
+        **payload.model_dump(exclude={"indicator_code", "domain_code", "owner_name"}),
+        indicator_code=code,
+        domain_code=domain,
+        status="DRAFT",
+        source_type="HUMAN",
+        owner_name=payload.owner_name or user.username,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(row)
+    db.flush()
+    _record(db, "INDICATOR", row.id, user, {"action": "create"}, "创建指标")
+    db.commit()
+    db.refresh(row)
+    rules = enabled_rules(db)
+    base = _to_out(db, row, rules)
+    return IndicatorDetail(
+        **base.model_dump(),
+        theme=row.theme,
+        indicator_level=row.indicator_level,
+        indicator_type=row.indicator_type,
+        indicator_def=row.indicator_def,
+        formula=row.formula,
+        caliber_id=row.caliber_id,
+        carry_type=row.carry_type,
+        source_type=row.source_type,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        issues=validate_indicator(db, row, rules),
+        versions=[],
+    )
+
+
+@router.patch("/indicators/{indicator_id}", response_model=IndicatorDetail)
+def update_indicator(
+    indicator_id: int,
+    payload: IndicatorUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    row = db.get(Indicator, indicator_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="指标不存在")
+    data = payload.model_dump(exclude_unset=True)
+    changes = {}
+    for key, value in data.items():
+        old = getattr(row, key)
+        if old != value:
+            changes[key] = {"old": old, "new": value}
+            setattr(row, key, value)
+    if row.status == "PUBLISHED":
+        row.status = "DRAFT"
+    row.updated_at = datetime.now()
+    if changes:
+        _record(db, "INDICATOR", row.id, user, changes, "修改指标")
+    db.commit()
+    db.refresh(row)
+    return get_indicator(indicator_id, db, user)
+
+
+@router.post("/indicators/{indicator_id}/publish", response_model=IndicatorDetail)
+def publish_indicator(
+    indicator_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    row = db.get(Indicator, indicator_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="指标不存在")
+    rules = enabled_rules(db)
+    summary = summarize(validate_indicator(db, row, rules))
+    if summary["block"]:
+        raise HTTPException(status_code=409, detail={"message": "存在阻断问题，不能发布", "issues": summary["issues"]})
+    row.status = "PUBLISHED"
+    row.updated_at = datetime.now()
+    _record(db, "INDICATOR", row.id, user, {"status": "PUBLISHED"}, "发布指标")
+    db.commit()
+    return get_indicator(indicator_id, db, user)
+
+
+@router.post("/indicators/{indicator_id}/retire", response_model=IndicatorDetail)
+def retire_indicator(
+    indicator_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    row = db.get(Indicator, indicator_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="指标不存在")
+    row.status = "RETIRED"
+    row.updated_at = datetime.now()
+    _record(db, "INDICATOR", row.id, user, {"status": "RETIRED"}, "废止指标")
+    db.commit()
+    return get_indicator(indicator_id, db, user)
+
+
+@router.get("/calibers", response_model=list[CaliberOut])
+def list_calibers(
+    kind: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    stmt = select(Caliber)
+    if kind:
+        stmt = stmt.where(Caliber.caliber_kind == kind)
+    return list(db.scalars(stmt.order_by(Caliber.caliber_code)).all())
+
+
+@router.post("/calibers", response_model=CaliberOut, status_code=201)
+def create_caliber(
+    payload: CaliberCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    if db.scalars(select(Caliber).where(Caliber.caliber_code == payload.caliber_code)).first():
+        raise HTTPException(status_code=409, detail="口径编码已存在")
+    row = Caliber(
+        **payload.model_dump(),
+        status="DRAFT",
+        source_type="HUMAN",
+        owner_name=user.username,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.patch("/calibers/{caliber_id}", response_model=CaliberOut)
+def update_caliber(
+    caliber_id: int,
+    payload: CaliberUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    row = db.get(Caliber, caliber_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="口径不存在")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(row, key, value)
+    row.updated_at = datetime.now()
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.get("/governance-rules", response_model=list[RuleOut])
+def list_rules(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:indicator")),
+):
+    return list(db.scalars(select(GovernanceRule).order_by(GovernanceRule.rule_code)).all())

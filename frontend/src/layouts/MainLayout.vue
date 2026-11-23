@@ -103,6 +103,7 @@ const allMenus: MenuItem[] = [
   { path: '/resources', title: '资源池', group: '数据资产', anyPerm: ['ast:catalog'] },
   { path: '/catalog', title: '资产目录', group: '数据资产', anyPerm: ['ast:catalog'] },
   { path: '/domains', title: '数据域', group: '数据资产', anyPerm: ['ast:catalog'] },
+  { path: '/indicators', title: '指标中心', group: '数据资产', anyPerm: ['ast:indicator'] },
   {
     path: '/organizations',
     title: '组织管理',

@@ -1,6 +1,10 @@
 from app.models.asset import Asset
 from app.models.asset_column import AssetColumn
 from app.models.brand import Brand
+from app.models.caliber import Caliber
+from app.models.governance_rule import GovernanceRule
+from app.models.indicator import Indicator
+from app.models.indicator_version import IndicatorVersion
 from app.models.datasource import DataSource
 from app.models.domain import Domain
 from app.models.meta_change import MetaChange
@@ -19,6 +23,10 @@ __all__ = [
     "Asset",
     "AssetColumn",
     "Brand",
+    "Caliber",
+    "GovernanceRule",
+    "Indicator",
+    "IndicatorVersion",
     "DataSource",
     "Domain",
     "MetaChange",

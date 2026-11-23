@@ -78,6 +78,24 @@ const router = createRouter({
           meta: { title: '数据域', group: '数据资产', anyPerm: ['ast:catalog'] },
         },
         {
+          path: 'indicators',
+          name: 'indicators',
+          component: () => import('@/views/indicator/IndicatorList.vue'),
+          meta: { title: '指标中心', group: '数据资产', anyPerm: ['ast:indicator'] },
+        },
+        {
+          path: 'indicators/new',
+          name: 'indicator-new',
+          component: () => import('@/views/indicator/IndicatorForm.vue'),
+          meta: { title: '新建指标', group: '数据资产', anyPerm: ['ast:indicator'] },
+        },
+        {
+          path: 'indicators/:id',
+          name: 'indicator-detail',
+          component: () => import('@/views/indicator/IndicatorDetail.vue'),
+          meta: { title: '指标详情', group: '数据资产', anyPerm: ['ast:indicator'] },
+        },
+        {
           path: 'catalog/:id',
           name: 'asset-detail',
           component: () => import('@/views/catalog/AssetDetail.vue'),
