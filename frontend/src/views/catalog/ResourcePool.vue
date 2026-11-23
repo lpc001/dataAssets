@@ -17,7 +17,7 @@
       <div class="stat"><div class="stat-value">{{ summary.resource_count }}</div><div class="stat-label">资源总数</div></div>
       <div class="stat"><div class="stat-value">{{ summary.asset_count }}</div><div class="stat-label">已登记资产</div></div>
       <div class="stat"><div class="stat-value">{{ unregistered }}</div><div class="stat-label">待登记</div></div>
-      <div class="stat"><div class="stat-value">{{ summary.missing_count }}</div><div class="stat-label">远端已消失</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.missing_count }}</div><div class="stat-label">数据源中已删除</div></div>
     </div>
 
     <div class="card list-card">
@@ -125,7 +125,11 @@
           <el-descriptions-item label="字段数">{{ detail.columns.length }}</el-descriptions-item>
           <el-descriptions-item label="建议数据类型">{{ layerLabel(detail.suggested_layer) }}</el-descriptions-item>
           <el-descriptions-item label="建议归属域">{{ domainLabel(detail.suggested_domain) }}</el-descriptions-item>
-          <el-descriptions-item label="远端状态">{{ detail.remote_status === 'ACTIVE' ? '在库' : '已消失' }}</el-descriptions-item>
+          <el-descriptions-item label="源库状态">
+            <el-tag size="small" :type="detail.remote_status === 'ACTIVE' ? 'success' : 'danger'" effect="plain">
+              {{ detail.remote_status === 'ACTIVE' ? '在库' : '已从源库删除' }}
+            </el-tag>
+          </el-descriptions-item>
         </el-descriptions>
 
         <div class="d-flags">
