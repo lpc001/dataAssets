@@ -60,7 +60,9 @@
           </el-form-item>
         </el-form>
         <el-descriptions :column="3" border v-if="asset">
-          <el-descriptions-item label="来源资源表">#{{ asset.resource_table_id }}</el-descriptions-item>
+          <el-descriptions-item label="来源表">
+            <span class="mono">{{ asset.schema_name }}.{{ asset.table_name }}</span>
+          </el-descriptions-item>
           <el-descriptions-item label="数据类型">{{ layerLabel(asset.data_layer) }}</el-descriptions-item>
           <el-descriptions-item label="行数">{{ asset.row_count ?? '—' }}</el-descriptions-item>
         </el-descriptions>
@@ -149,7 +151,12 @@ const form = reactive<any>({ asset_name: '', domain_code: '', trace_level: '', s
 const colVisible = ref(false)
 const colForm = reactive<any>({ id: 0, column_name: '', column_comment: '', business_name: '', business_meaning: '', sensitive_level: 'L1', is_key: false })
 
-const LAYER_LABELS: Record<string, string> = { DIM: '维度数据', DWD: '业务数据', DWS: '汇总统计' }
+const LAYER_LABELS: Record<string, string> = {
+  DIM: '维度数据',
+  DWD: '业务数据',
+  DWS: '汇总统计',
+  OTHER: '其他',
+}
 const STATUS_LABELS: Record<string, string> = { PUBLISHED: '已发布', DRAFT: '草稿', OFFLINE: '已下线' }
 
 function layerLabel(layer: string | null | undefined) {

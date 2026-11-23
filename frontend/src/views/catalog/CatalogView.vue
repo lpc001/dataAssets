@@ -160,7 +160,12 @@ function statusLabel(status: string) {
   return STATUS_LABELS[status] || status
 }
 
-const LAYER_LABELS: Record<string, string> = { DIM: '维度数据', DWD: '业务数据', DWS: '汇总统计' }
+const LAYER_LABELS: Record<string, string> = {
+  DIM: '维度数据',
+  DWD: '业务数据',
+  DWS: '汇总统计',
+  OTHER: '其他',
+}
 
 function layerLabel(layer: string | null) {
   return layer ? LAYER_LABELS[layer] || layer : '—'

@@ -255,7 +255,12 @@ const filters = reactive({
 const unregistered = computed(() => Math.max(summary.resource_count - summary.asset_count, 0))
 const isBatch = computed(() => pending.value.length > 1)
 
-const LAYER_LABELS: Record<string, string> = { DIM: '维度数据', DWD: '业务数据', DWS: '汇总统计' }
+const LAYER_LABELS: Record<string, string> = {
+  DIM: '维度数据',
+  DWD: '业务数据',
+  DWS: '汇总统计',
+  OTHER: '其他',
+}
 
 function layerLabel(layer: string | null) {
   return layer ? LAYER_LABELS[layer] || layer : '其他'
