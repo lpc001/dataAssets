@@ -132,14 +132,47 @@ export interface PreviewData {
   limit: number
   schema_name: string
   table_name: string
+  masked_columns: string[]
+  all_columns: string[]
 }
 
-export function previewResource(id: number, limit = 20): Promise<PreviewData> {
-  return http.get(`/resources/${id}/preview`, { params: { limit } }).then((r) => r.data)
+export interface PreviewQuery {
+  limit?: number
+  columns?: string[]
+  raw?: boolean
 }
 
-export function previewAsset(id: number, limit = 20): Promise<PreviewData> {
-  return http.get(`/assets/${id}/preview`, { params: { limit } }).then((r) => r.data)
+function previewParams(q: PreviewQuery) {
+  const params: Record<string, unknown> = { limit: q.limit ?? 20, raw: !!q.raw }
+  if (q.columns && q.columns.length) params.columns = q.columns.join(',')
+  return params
+}
+
+export function previewResource(id: number, q: PreviewQuery = {}): Promise<PreviewData> {
+  return http.get(`/resources/${id}/preview`, { params: previewParams(q) }).then((r) => r.data)
+}
+
+export function previewAsset(id: number, q: PreviewQuery = {}): Promise<PreviewData> {
+  return http.get(`/assets/${id}/preview`, { params: previewParams(q) }).then((r) => r.data)
+}
+
+export interface PreviewAudit {
+  id: number
+  username: string | null
+  object_type: string
+  object_id: number
+  schema_name: string
+  table_name: string
+  columns_text: string | null
+  row_limit: number
+  row_returned: number
+  masked: boolean
+  client_ip: string | null
+  created_at: string
+}
+
+export function listPreviewAudits(limit = 100): Promise<PreviewAudit[]> {
+  return http.get('/preview-audits', { params: { limit } }).then((r) => r.data)
 }
 
 export function patchResource(id: number, payload: { is_temp?: boolean; is_system?: boolean }) {

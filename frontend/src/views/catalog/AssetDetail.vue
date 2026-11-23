@@ -113,7 +113,7 @@
       </el-tab-pane>
 
       <el-tab-pane label="示例数据" name="sample">
-        <SampleData v-if="tab === 'sample' && asset" :fetcher="() => previewAsset(asset!.id)" />
+        <SampleData v-if="tab === 'sample' && asset" :fetcher="(q) => previewAsset(asset!.id, q)" />
       </el-tab-pane>
     </el-tabs>
 

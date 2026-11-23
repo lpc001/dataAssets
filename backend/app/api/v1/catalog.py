@@ -1,6 +1,8 @@
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,7 @@ from app.core.database import get_db
 from app.crud import asset as asset_crud
 from app.crud import resource as resource_crud
 from app.models.domain import Domain
+from app.models.preview_audit import PreviewAudit
 from app.models.subject import Subject
 from app.models.user import User
 from sqlalchemy import func
@@ -28,6 +31,7 @@ from app.schemas.catalog import (
     RegisterRequest,
     ResourceColumnOut,
     ResourceDetail,
+    PreviewAuditOut,
     PreviewOut,
     ResourcePage,
     ResourcePatch,
@@ -35,8 +39,47 @@ from app.schemas.catalog import (
     SubjectOut,
     SummaryOut,
 )
-from app.services.permissions import require_perm
+from app.services.permissions import permissions_for_user, require_perm
 from app.services.preview import preview_rows
+
+
+def _parse_columns(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    items = [c.strip() for c in value.split(",") if c.strip()]
+    return items or None
+
+
+def _write_audit(
+    db: Session,
+    request: Request,
+    user: User,
+    object_type: str,
+    object_id: int,
+    schema_name: str,
+    table_name: str,
+    columns_text: str | None,
+    limit: int,
+    returned: int,
+    masked: bool,
+) -> None:
+    db.add(
+        PreviewAudit(
+            user_id=user.id,
+            username=user.username,
+            object_type=object_type,
+            object_id=object_id,
+            schema_name=schema_name,
+            table_name=table_name,
+            columns_text=columns_text,
+            row_limit=limit,
+            row_returned=returned,
+            masked=masked,
+            client_ip=request.client.host if request.client else None,
+            created_at=datetime.now(),
+        )
+    )
+    db.commit()
 from app.services.register import register_resources
 
 router = APIRouter(tags=["资产目录"])
@@ -187,7 +230,10 @@ def list_resources(
 @router.get("/resources/{resource_id}/preview", response_model=PreviewOut)
 def preview_resource(
     resource_id: int,
-    limit: int = Query(20, ge=1, le=50),
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    columns: str | None = None,
+    raw: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(require_perm("ast:preview")),
 ):
@@ -197,14 +243,38 @@ def preview_resource(
     datasource = db.get(DataSource, row.datasource_id)
     if datasource is None:
         raise HTTPException(status_code=404, detail="数据源不存在")
+    all_columns = [c.column_name for c in resource_crud.columns(db, row.id)]
+    picked = _parse_columns(columns)
+    if picked and any(c not in all_columns for c in picked):
+        raise HTTPException(status_code=400, detail="包含不存在的字段")
+    if raw and "ast:preview:raw" not in permissions_for_user(db, user):
+        raise HTTPException(status_code=403, detail="没有查看明文的权限")
     try:
-        columns, rows = preview_rows(db, datasource, row, limit)
+        cols, rows, masked = preview_rows(
+            db,
+            datasource,
+            row,
+            limit=limit,
+            columns=picked,
+            sensitive=None,
+            mask=not raw,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"预览失败：{exc.__class__.__name__}") from exc
+    _write_audit(
+        db, request, user, "RESOURCE", row.id, row.schema_name, row.table_name,
+        ",".join(cols), limit, len(rows), bool(masked) and not raw,
+    )
     return PreviewOut(
-        columns=columns, rows=rows, limit=limit, schema_name=row.schema_name, table_name=row.table_name
+        columns=cols,
+        rows=rows,
+        limit=limit,
+        schema_name=row.schema_name,
+        table_name=row.table_name,
+        masked_columns=masked,
+        all_columns=all_columns,
     )
 
 
@@ -291,7 +361,10 @@ def get_asset(
 @router.get("/assets/{asset_id}/preview", response_model=PreviewOut)
 def preview_asset(
     asset_id: int,
-    limit: int = Query(20, ge=1, le=50),
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    columns: str | None = None,
+    raw: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(require_perm("ast:preview")),
 ):
@@ -304,18 +377,52 @@ def preview_asset(
     datasource = db.get(DataSource, resource.datasource_id)
     if datasource is None:
         raise HTTPException(status_code=404, detail="数据源不存在")
+
+    asset_columns = asset_crud.columns_with_type(db, asset.id)
+    all_columns = [c["column_name"] for c in asset_columns]
+    sensitive = {c["column_name"]: c["sensitive_level"] for c in asset_columns}
+    picked = _parse_columns(columns)
+    if picked and any(c not in all_columns for c in picked):
+        raise HTTPException(status_code=400, detail="包含不存在的字段")
+    if raw and "ast:preview:raw" not in permissions_for_user(db, user):
+        raise HTTPException(status_code=403, detail="没有查看明文的权限")
     try:
-        columns, rows = preview_rows(db, datasource, resource, limit)
+        cols, rows, masked = preview_rows(
+            db,
+            datasource,
+            resource,
+            limit=limit,
+            columns=picked,
+            sensitive=sensitive,
+            mask=not raw,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"预览失败：{exc.__class__.__name__}") from exc
+    _write_audit(
+        db, request, user, "ASSET", asset.id, resource.schema_name, resource.table_name,
+        ",".join(cols), limit, len(rows), bool(masked) and not raw,
+    )
     return PreviewOut(
-        columns=columns,
+        columns=cols,
         rows=rows,
         limit=limit,
         schema_name=resource.schema_name,
         table_name=resource.table_name,
+        masked_columns=masked,
+        all_columns=all_columns,
+    )
+
+
+@router.get("/preview-audits", response_model=list[PreviewAuditOut])
+def list_preview_audits(
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:preview")),
+):
+    return list(
+        db.scalars(select(PreviewAudit).order_by(PreviewAudit.id.desc()).limit(limit)).all()
     )
 
 

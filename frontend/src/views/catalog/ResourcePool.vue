@@ -177,7 +177,7 @@
     </el-drawer>
 
     <el-dialog v-model="sampleVisible" :title="detail ? `示例数据 · ${detail.table_name}` : '示例数据'" width="900px">
-      <SampleData v-if="sampleVisible && detail" :fetcher="() => previewResource(detail!.id)" />
+      <SampleData v-if="sampleVisible && detail" :fetcher="(q) => previewResource(detail!.id, q)" />
     </el-dialog>
 
     <el-dialog v-model="registerVisible" :title="isBatch ? `登记为资产（${pending.length} 项）` : '登记为资产'" width="620px">

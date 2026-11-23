@@ -68,15 +68,24 @@ class PostgresAdapter(MetadataAdapter):
         except Exception:  # noqa: BLE001
             return None
 
-    def fetch_sample(self, schema: str, table: str, limit: int = 20) -> tuple[list[str], list[list]]:
+    def fetch_sample(
+        self, schema: str, table: str, limit: int = 20, columns: list[str] | None = None
+    ) -> tuple[list[str], list[list]]:
         """只读抽样：强制限行 + 10 秒超时，标识符走白名单校验。"""
         if not _IDENT_RE.match(schema) or not _IDENT_RE.match(table):
             raise ValueError("非法标识符")
-        limit = max(1, min(int(limit), 50))
+        limit = max(1, min(int(limit), 100))
+        if columns:
+            for col in columns:
+                if not _IDENT_RE.match(col):
+                    raise ValueError("非法字段名")
+            projection = ", ".join(f'"{c}"' for c in columns)
+        else:
+            projection = "*"
         with self._engine.connect() as conn:
             conn.execute(text("set statement_timeout = '10000'"))
             result = conn.execute(
-                text(f'select * from "{schema}"."{table}" limit :lim'), {"lim": limit}
+                text(f'select {projection} from "{schema}"."{table}" limit :lim'), {"lim": limit}
             )
             columns = list(result.keys())
             rows = [[_json_value(v) for v in row] for row in result.fetchall()]
