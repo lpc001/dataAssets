@@ -84,12 +84,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { fetchDataMap, type DataMap, type MapAsset } from '@/api/catalog'
 
-// 品牌蓝为锚点，向青/紫/绿/琥珀发散的水务谱系：既有区分度，又不会全蓝疲劳
+// 品牌蓝为锚点，向青/紫/绿/琥珀发散的水务谱系
 const PALETTE = ['#0A84FF', '#12A8D8', '#4F7CFF', '#7C6CF0', '#9B7CFF', '#17A2B8', '#2BB39B', '#5B8DEF', '#E0A23F', '#6FA84F']
 const GROUP_COLORS: Record<string, string> = { PUBLIC: '#7FA3C4', TOPIC: '#6C8CFF', OTHER: '#8FA8C4', DOMAIN: '#0A84FF' }
 
-// 水务价值链顺序：源头 → 制水 → 输配 → 计量收费 → 服务 → 排水
-// 底图为 2048x1152（16:9），锚点按图片归一化坐标标注，渲染时再换算到容器
+// 底图 2048x1152；锚点为图片归一化坐标
 const IMG_RATIO = 2048 / 1152
 const CHAIN_POS: Record<string, [number, number]> = {
   prd: [0.273, 0.330],
@@ -106,7 +105,6 @@ const EXTRA_POS: Record<string, [number, number]> = {
   she: [0.910, 0.800],
 }
 
-// background-size: cover 的换算：把图片归一化坐标映射到容器百分比
 function anchorToStage(pos: [number, number], cw: number, ch: number): [number, number] {
   const h = Math.max(ch, cw / IMG_RATIO)
   const w = h * IMG_RATIO
@@ -204,13 +202,15 @@ function onAssetClick(asset: MapAsset) {
   current.value = asset
 }
 
-// ---------------- 水脉视图 ----------------
+// ---------------- 水脉 ----------------
 function waterOption() {
   const width = chartEl.value?.clientWidth || 900
   const height = chartEl.value?.clientHeight || 520
-  const nodes: any[] = []
-  const links: any[] = []
   const assets = visibleAssets.value
+
+  const domainPoints: any[] = []
+  const assetPoints: any[] = []
+  const lineData: any[] = []
 
   data.value.domains.forEach((d) => {
     const pos = CHAIN_POS[d.domain_code] || EXTRA_POS[d.domain_code] || [0.5, 0.5]
@@ -218,24 +218,25 @@ function waterOption() {
     const x = ax * width
     const y = ay * height
     const empty = d.asset_count === 0
-    nodes.push({
-      id: 'd:' + d.domain_code,
+    const size = empty ? 8 : 18 + Math.min(20, Math.sqrt(d.asset_count) * 5)
+
+    domainPoints.push({
+      value: [x, y],
       name: d.domain_name,
-      x,
-      y,
-      symbol: 'circle',
-      symbolSize: empty ? 8 : 18 + Math.min(20, Math.sqrt(d.asset_count) * 5),
+      domainCode: d.domain_code,
+      symbolSize: size,
       itemStyle: {
-        color: empty ? 'rgba(10, 132, 255, 0.12)' : colorOf(d.domain_code),
-        shadowBlur: empty ? 0 : 18,
-        shadowColor: 'rgba(10, 132, 255, 0.35)',
-        borderColor: empty ? 'rgba(10, 132, 255, 0.25)' : 'rgba(255, 255, 255, 0.9)',
+        color: empty ? 'rgba(10, 132, 255, 0.10)' : colorOf(d.domain_code),
+        borderColor: empty ? 'rgba(10, 132, 255, 0.25)' : 'rgba(255, 255, 255, 0.95)',
         borderWidth: empty ? 1 : 2,
+        shadowBlur: empty ? 0 : 18,
+        shadowColor: 'rgba(10, 132, 255, 0.30)',
       },
       label: {
         show: true,
         position: d.domain_code === 'svc' ? 'left' : 'bottom',
-        distance: empty ? 4 : 12,
+        distance: empty ? 4 : 10,
+        formatter: d.domain_name,
         color: empty ? 'rgba(15, 43, 70, 0.32)' : '#0F2B46',
         fontSize: empty ? 11 : 12,
         fontWeight: empty ? 400 : 600,
@@ -245,40 +246,31 @@ function waterOption() {
     const items = assets.filter((a) => a.domain_code === d.domain_code)
     const angleStep = (Math.PI * 2) / Math.max(items.length, 1)
     items.forEach((a, i) => {
-      const radius = 46 + Math.sqrt(i) * 9
+      const radius = 42 + Math.sqrt(i) * 8
       const angle = i * angleStep + (d.domain_code.length % 3) * 0.4
-      nodes.push({
-        id: 'a:' + a.id,
+      const px = x + Math.cos(angle) * radius
+      const py = y + Math.sin(angle) * radius
+      assetPoints.push({
+        value: [px, py],
         name: a.asset_name,
-        x: x + Math.cos(angle) * radius,
-        y: y + Math.sin(angle) * radius,
+        asset: a,
         symbolSize: 5 + Math.min(9, Math.sqrt(a.rows || 0) / 9),
         itemStyle: { color: assetColor(a), opacity: 0.8 },
-        label: { show: false },
-        asset: a,
       })
-      links.push({
-        source: 'd:' + d.domain_code,
-        target: 'a:' + a.id,
-        lineStyle: { color: 'rgba(10, 132, 255, 0.18)', width: 1, curveness: 0.12 },
-      })
+      lineData.push({ coords: [[x, y], [px, py]] })
     })
   })
 
-  // 零散的无域资产（公共维度等）放在下方作为“水系外环”
   const others = assets.filter((a) => !a.domain_code)
   others.forEach((a, i) => {
     const x = width * 0.5 + (i - others.length / 2) * 14
     const y = height * 0.95
-    nodes.push({
-      id: 'a:' + a.id,
+    assetPoints.push({
+      value: [x, y],
       name: a.asset_name,
-      x,
-      y,
-      symbolSize: 5,
-      itemStyle: { color: GROUP_COLORS[a.group_type], opacity: 0.7 },
-      label: { show: false },
       asset: a,
+      symbolSize: 5,
+      itemStyle: { color: GROUP_COLORS[a.group_type] || '#7FA3C4', opacity: 0.7 },
     })
   })
 
@@ -295,15 +287,42 @@ function waterOption() {
         return `${a.asset_name}<br/>${a.table_name}<br/>行数 ${fmtNumber(a.rows)} · 字段 ${a.columns}`
       },
     },
+    grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: false },
+    xAxis: { type: 'value', min: 0, max: width, show: false },
+    yAxis: { type: 'value', min: 0, max: height, show: false, inverse: true },
     series: [
       {
-        type: 'graph',
-        layout: 'none',
-        roam: true,
-        data: nodes,
-        links,
-        emphasis: { focus: 'adjacency' },
-        lineStyle: { opacity: 0.9 },
+        type: 'lines',
+        coordinateSystem: 'cartesian2d',
+        polyline: false,
+        silent: true,
+        data: lineData,
+        lineStyle: { color: 'rgba(10, 132, 255, 0.18)', width: 1, curveness: 0.12 },
+      },
+      {
+        type: 'scatter',
+        coordinateSystem: 'cartesian2d',
+        silent: true,
+        data: domainPoints.map((p) => ({
+          ...p,
+          label: { show: false },
+          itemStyle: { ...p.itemStyle, opacity: 0.14, borderWidth: 0, shadowBlur: 0 },
+          symbolSize: p.symbolSize * 2.4,
+        })),
+        z: 2,
+      },
+      {
+        type: 'scatter',
+        coordinateSystem: 'cartesian2d',
+        data: assetPoints,
+        emphasis: { scale: 1.6 },
+        z: 3,
+      },
+      {
+        type: 'scatter',
+        coordinateSystem: 'cartesian2d',
+        data: domainPoints,
+        z: 5,
       },
     ],
   }
@@ -373,9 +392,7 @@ function renderChart() {
   chart.off('click')
   chart.on('click', (p: any) => {
     if (p.data?.asset) onAssetClick(p.data.asset)
-    else if (p.data?.id?.toString().startsWith('d:')) {
-      focusDomain.value = p.data.id.slice(2)
-    }
+    else if (p.data?.domainCode) focusDomain.value = p.data.domainCode
   })
 }
 
@@ -562,9 +579,9 @@ onBeforeUnmount(() => {
 .water-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; }
 .veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.26)); pointer-events: none; }
 .chart, .city { width: 100%; height: 100%; display: block; position: relative; z-index: 2; }
-.river-legend { position: absolute; left: 18px; bottom: 14px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5B7083; background: rgba(255,255,255,0.75); padding: 6px 12px; border-radius: 999px; border: 1px solid #E1EEF9; }
+.river-legend { position: absolute; left: 18px; bottom: 14px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5B7083; background: rgba(255,255,255,0.78); padding: 6px 12px; border-radius: 999px; border: 1px solid #E1EEF9; z-index: 3; }
 .river-legend i { width: 22px; height: 2px; background: linear-gradient(90deg, rgba(10,132,255,0.15), rgba(10,132,255,0.55)); border-radius: 2px; display: inline-block; }
-.focus-chip { position: absolute; top: 14px; left: 16px; background: #FFFFFF; border: 1px solid #DCEBFA; padding: 6px 12px; border-radius: 999px; font-size: 12.5px; color: #0F2B46; box-shadow: 0 2px 8px rgba(10, 132, 255, 0.08); }
+.focus-chip { position: absolute; top: 14px; left: 16px; background: #FFFFFF; border: 1px solid #DCEBFA; padding: 6px 12px; border-radius: 999px; font-size: 12.5px; color: #0F2B46; box-shadow: 0 2px 8px rgba(10, 132, 255, 0.08); z-index: 3; }
 .focus-chip button { margin-left: 10px; background: transparent; border: 0; color: #0A84FF; cursor: pointer; font-size: 12.5px; }
 .empty-tip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #8FA8BC; font-size: 13px; }
 .detail { width: 300px; flex-shrink: 0; background: #FFFFFF; border: 1px solid #DCEBFA; border-radius: 16px; padding: 18px; position: relative; box-shadow: 0 6px 24px rgba(10, 132, 255, 0.08); }
