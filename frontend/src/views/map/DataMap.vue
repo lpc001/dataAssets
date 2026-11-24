@@ -112,7 +112,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
-import { fetchDataMap, type DataMap, type MapAsset } from '@/api/catalog'
+import { fetchDataMap, type DataMap, type MapAsset, type MapDomain } from '@/api/catalog'
 
 // 品牌蓝为锚点，向青/紫/绿/琥珀发散的水务谱系
 const PALETTE = ['#0A84FF', '#12A8D8', '#4F7CFF', '#7C6CF0', '#9B7CFF', '#17A2B8', '#2BB39B', '#5B8DEF', '#E0A23F', '#6FA84F']
@@ -133,6 +133,11 @@ const EXTRA_POS: Record<string, [number, number]> = {
   ast: [0.312, 0.704],
   prj: [0.478, 0.680],
   she: [0.910, 0.800],
+}
+
+function anchorOf(d: MapDomain): [number, number] {
+  if (d.anchor_x != null && d.anchor_y != null) return [d.anchor_x, d.anchor_y]
+  return CHAIN_POS[d.domain_code] || EXTRA_POS[d.domain_code] || [0.5, 0.5]
 }
 
 function anchorToStage(pos: [number, number], cw: number, ch: number): [number, number] {
@@ -235,8 +240,7 @@ const zones = computed(() => {
   const { w, h } = stageSize.value
   if (!w || !h) return []
   return data.value.domains.map((d) => {
-    const pos = CHAIN_POS[d.domain_code] || EXTRA_POS[d.domain_code] || [0.5, 0.5]
-    const [x, y] = anchorToStage(pos, w, h)
+    const [x, y] = anchorToStage(anchorOf(d), w, h)
     return { code: d.domain_code, name: d.domain_name, x: x * 100, y: y * 100, count: d.asset_count }
   })
 })
@@ -290,8 +294,7 @@ function waterOption() {
   const lineData: any[] = []
 
   data.value.domains.forEach((d) => {
-    const pos = CHAIN_POS[d.domain_code] || EXTRA_POS[d.domain_code] || [0.5, 0.5]
-    const [ax, ay] = anchorToStage(pos, width, height)
+    const [ax, ay] = anchorToStage(anchorOf(d), width, height)
     const x = ax * width
     const y = ay * height
     const empty = d.asset_count === 0

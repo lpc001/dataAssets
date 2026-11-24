@@ -6,6 +6,8 @@ export interface Domain {
   domain_name: string
   sort: number
   description: string | null
+  anchor_x: number | null
+  anchor_y: number | null
   asset_count: number
 }
 
@@ -13,6 +15,8 @@ export interface DomainPatch {
   domain_name?: string
   description?: string | null
   sort?: number
+  anchor_x?: number
+  anchor_y?: number
 }
 
 export interface DomainCreate {
@@ -145,6 +149,8 @@ export interface MapDomain {
   asset_count: number
   column_count: number
   row_sum: number
+  anchor_x?: number | null
+  anchor_y?: number | null
 }
 
 export interface DataMap {

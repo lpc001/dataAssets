@@ -462,6 +462,8 @@ def data_map(
                 asset_count=agg["asset_count"],
                 column_count=agg["column_count"],
                 row_sum=agg["row_sum"],
+                anchor_x=domain.anchor_x,
+                anchor_y=domain.anchor_y,
             )
         )
 

@@ -11,6 +11,32 @@
       </div>
     </div>
 
+    <div class="card map-card">
+      <div class="map-head">
+        <div>
+          <div class="map-title">地图锚点</div>
+          <div class="map-sub">拖动圆点到底图上对应的设施位置，保存后「数据全景」按此定位</div>
+        </div>
+        <div class="map-actions">
+          <el-button @click="resetAnchors">恢复默认</el-button>
+          <el-button type="primary" :loading="savingAnchors" @click="saveAnchors">保存锚点</el-button>
+        </div>
+      </div>
+      <div ref="mapEl" class="map-editor">
+        <div
+          v-for="d in rows"
+          :key="d.domain_code"
+          class="pin"
+          :class="{ dragging: dragCode === d.domain_code }"
+          :style="{ left: pct(anchorOf(d).x), top: pct(anchorOf(d).y) }"
+          @pointerdown.prevent="startDrag(d.domain_code)"
+        >
+          <i :style="{ background: colorOf(d.domain_code) }"></i>
+          <span>{{ d.domain_name }}</span>
+        </div>
+      </div>
+    </div>
+
     <div class="card table-card">
       <el-table :data="rows" v-loading="loading">
         <el-table-column label="域码" width="110">
@@ -73,10 +99,96 @@ const saving = ref(false)
 const dialogVisible = ref(false)
 const form = reactive<any>({ id: 0, domain_code: '', domain_name: '', sort: 0, description: '' })
 
+const PALETTE = ['#0A84FF', '#12A8D8', '#4F7CFF', '#7C6CF0', '#9B7CFF', '#17A2B8', '#2BB39B', '#5B8DEF', '#E0A23F', '#6FA84F']
+const DEFAULT_ANCHORS: Record<string, [number, number]> = {
+  prd: [0.273, 0.330], dsp: [0.481, 0.334], net: [0.593, 0.382], mkt: [0.718, 0.208], svc: [0.945, 0.200],
+  drn: [0.737, 0.677], wqm: [0.080, 0.752], ast: [0.312, 0.704], prj: [0.478, 0.680], she: [0.910, 0.800],
+}
+const mapEl = ref<HTMLDivElement | null>(null)
+const anchors = reactive<Record<string, { x: number; y: number }>>({})
+const savingAnchors = ref(false)
+const dragCode = ref('')
+
+function colorOf(code: string) {
+  const i = rows.value.findIndex((r) => r.domain_code === code)
+  return PALETTE[(i < 0 ? 0 : i) % PALETTE.length]
+}
+
+function defaultAnchor(code: string): [number, number] {
+  return DEFAULT_ANCHORS[code] || [0.5, 0.5]
+}
+
+function anchorOf(d: Domain) {
+  return anchors[d.domain_code] || { x: d.anchor_x ?? defaultAnchor(d.domain_code)[0], y: d.anchor_y ?? defaultAnchor(d.domain_code)[1] }
+}
+
+function pct(v: number) {
+  return `${(v * 100).toFixed(2)}%`
+}
+
+function syncAnchors() {
+  for (const d of rows.value) {
+    anchors[d.domain_code] = {
+      x: d.anchor_x ?? defaultAnchor(d.domain_code)[0],
+      y: d.anchor_y ?? defaultAnchor(d.domain_code)[1],
+    }
+  }
+}
+
+function startDrag(code: string) {
+  dragCode.value = code
+  window.addEventListener('pointermove', onDrag)
+  window.addEventListener('pointerup', endDrag)
+}
+
+function onDrag(e: PointerEvent) {
+  if (!dragCode.value || !mapEl.value) return
+  const rect = mapEl.value.getBoundingClientRect()
+  const x = Math.min(0.98, Math.max(0.02, (e.clientX - rect.left) / rect.width))
+  const y = Math.min(0.98, Math.max(0.02, (e.clientY - rect.top) / rect.height))
+  anchors[dragCode.value] = { x, y }
+}
+
+function endDrag() {
+  dragCode.value = ''
+  window.removeEventListener('pointermove', onDrag)
+  window.removeEventListener('pointerup', endDrag)
+}
+
+function resetAnchors() {
+  for (const d of rows.value) {
+    const [x, y] = defaultAnchor(d.domain_code)
+    anchors[d.domain_code] = { x, y }
+  }
+  ElMessage.info('已恢复默认位置，点「保存锚点」生效')
+}
+
+async function saveAnchors() {
+  savingAnchors.value = true
+  try {
+    let changed = 0
+    for (const d of rows.value) {
+      const a = anchors[d.domain_code]
+      if (!a) continue
+      const nx = Number(a.x.toFixed(4))
+      const ny = Number(a.y.toFixed(4))
+      if (nx !== d.anchor_x || ny !== d.anchor_y) {
+        await patchDomain(d.id, { anchor_x: nx, anchor_y: ny })
+        changed += 1
+      }
+    }
+    ElMessage.success(changed ? `已保存 ${changed} 个锚点` : '锚点没有变化')
+    await load()
+  } finally {
+    savingAnchors.value = false
+  }
+}
+
 async function load() {
   loading.value = true
   try {
     rows.value = await listDomains()
+    syncAnchors()
   } finally {
     loading.value = false
   }
@@ -156,4 +268,35 @@ onMounted(load)
 .zero {
   color: var(--color-text-secondary);
 }
+.map-card { padding: 16px 18px; margin-bottom: 16px; }
+.map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+.map-title { font-size: 15px; font-weight: 600; }
+.map-sub { font-size: 12px; color: var(--color-text-secondary); margin-top: 2px; }
+.map-editor {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2048 / 1152;
+  background: url('/water-cycle.png') center / 100% 100% no-repeat;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #DCEBFA;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: grab;
+  user-select: none;
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.12);
+  white-space: nowrap;
+}
+.pin i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.pin.dragging { cursor: grabbing; box-shadow: 0 4px 16px rgba(10, 132, 255, 0.32); }
 </style>

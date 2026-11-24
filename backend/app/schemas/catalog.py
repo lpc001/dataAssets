@@ -11,6 +11,8 @@ class DomainOut(BaseModel):
     domain_name: str
     sort: int
     description: str | None
+    anchor_x: float | None = None
+    anchor_y: float | None = None
     asset_count: int = 0
 
 
@@ -25,6 +27,8 @@ class DomainPatch(BaseModel):
     domain_name: str | None = Field(None, max_length=32)
     description: str | None = Field(None, max_length=500)
     sort: int | None = None
+    anchor_x: float | None = Field(None, ge=0, le=1)
+    anchor_y: float | None = Field(None, ge=0, le=1)
 
 
 class SubjectOut(BaseModel):
@@ -187,6 +191,8 @@ class MapDomain(BaseModel):
     asset_count: int
     column_count: int
     row_sum: int
+    anchor_x: float | None = None
+    anchor_y: float | None = None
 
 
 class MapAsset(BaseModel):
