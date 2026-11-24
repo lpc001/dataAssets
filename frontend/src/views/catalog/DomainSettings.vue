@@ -76,7 +76,7 @@
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑数据域' : '新增数据域'" width="520px">
       <el-form :model="form" label-width="90px" label-position="left">
         <el-form-item label="域码" required>
-          <el-input v-model="form.domain_code" :disabled="!!form.id" placeholder="3-8 位小写字母，如 fin" />
+          <el-input v-model="form.domain_code" :disabled="!!form.id" placeholder="2-8 位小写字母，如 ys / fin" />
         </el-form-item>
         <el-form-item label="名称" required>
           <el-input v-model="form.domain_name" placeholder="如 财务" />
@@ -228,6 +228,10 @@ function openEdit(row: Domain) {
 async function onSave() {
   if (!form.domain_name || !form.domain_code) {
     ElMessage.warning('请填写域码与名称')
+    return
+  }
+  if (!/^[a-z][a-z0-9]{1,7}$/.test(form.domain_code)) {
+    ElMessage.warning('域码需为 2-8 位小写字母或数字，且以字母开头')
     return
   }
   saving.value = true

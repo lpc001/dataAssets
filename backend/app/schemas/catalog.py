@@ -17,7 +17,7 @@ class DomainOut(BaseModel):
 
 
 class DomainCreate(BaseModel):
-    domain_code: str = Field(..., min_length=3, max_length=8, description="域码，建议三字母小写")
+    domain_code: str = Field(..., min_length=2, max_length=8, description="域码，2-8 位小写字母")
     domain_name: str = Field(..., max_length=32)
     description: str | None = Field(None, max_length=500)
     sort: int = 0

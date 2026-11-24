@@ -25,7 +25,10 @@ http.interceptors.response.use(
       window.location.href = '/login'
     } else {
       const detail = error.response?.data?.detail
-      ElMessage.error(typeof detail === 'string' ? detail : '请求失败')
+      const msg = Array.isArray(detail)
+        ? detail.map((d: any) => d?.msg || '').filter(Boolean).join('；')
+        : detail
+      ElMessage.error(typeof msg === 'string' && msg ? msg : '请求失败')
     }
     return Promise.reject(error)
   },
