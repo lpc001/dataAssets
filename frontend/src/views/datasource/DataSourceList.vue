@@ -82,7 +82,22 @@
           <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" />
         </el-form-item>
         <el-form-item label="数据库" required><el-input v-model="form.database_name" placeholder="water_dw" /></el-form-item>
-        <el-form-item label="Schema"><el-input v-model="form.schema_filter" placeholder="cdm,cdm_mock" /></el-form-item>
+        <el-form-item label="Schema">
+          <div class="schema-row">
+            <el-select
+              v-model="schemaList"
+              multiple
+              filterable
+              allow-create
+              default-first-option
+              style="flex: 1"
+              placeholder="可多选，也可直接输入"
+            >
+              <el-option v-for="s in schemaOptions" :key="s" :label="s" :value="s" />
+            </el-select>
+            <el-button :loading="schemaLoading" @click="loadSchemas()">加载</el-button>
+          </div>
+        </el-form-item>
       </el-form>
       <div class="form-section">账号与备注</div>
       <el-form :model="form" label-width="92px" label-position="left">
@@ -170,6 +185,7 @@ import { assetSummary } from '@/api/catalog'
 import {
   createDatasource,
   deleteDatasource,
+  fetchSchemas,
   listDatasources,
   listVersionChanges,
   listVersions,
@@ -190,6 +206,9 @@ const versionsLoading = ref(false)
 const versions = ref<MetaVersion[]>([])
 const changesVisible = ref(false)
 const changes = ref<MetaChange[]>([])
+const schemaOptions = ref<string[]>([])
+const schemaList = ref<string[]>([])
+const schemaLoading = ref(false)
 const currentVersion = ref<MetaVersion | null>(null)
 const summary = reactive({ datasource_count: 0, resource_count: 0, asset_count: 0, column_count: 0, domain_count: 0, missing_count: 0 })
 
@@ -244,12 +263,43 @@ function openCreate() {
     id: null, name: '', host: 'localhost', port: 5432, database_name: '',
     schema_filter: 'public', username: 'reader', password: '', remark: '',
   })
+  schemaList.value = []
+  schemaOptions.value = []
   dialogVisible.value = true
 }
 
-function openEdit(row: DataSource) {
+async function openEdit(row: DataSource) {
   Object.assign(form, { ...row, password: '' })
+  schemaList.value = (row.schema_filter || '').split(',').map((s) => s.trim()).filter(Boolean)
+  schemaOptions.value = [...schemaList.value]
   dialogVisible.value = true
+  await loadSchemas(row.id)
+}
+
+async function loadSchemas(datasourceId?: number) {
+  if (!form.host || !form.database_name || !form.username) {
+    ElMessage.warning('请先填写主机、数据库与账号')
+    return
+  }
+  if (!form.password && !(datasourceId || form.id)) {
+    ElMessage.warning('请先填写口令')
+    return
+  }
+  schemaLoading.value = true
+  try {
+    const res = await fetchSchemas({
+      host: form.host,
+      port: form.port,
+      database_name: form.database_name,
+      username: form.username,
+      password: form.password || undefined,
+      datasource_id: datasourceId || form.id || undefined,
+    })
+    schemaOptions.value = res.schemas
+    ElMessage.success(`已加载 ${res.schemas.length} 个 Schema`)
+  } finally {
+    schemaLoading.value = false
+  }
 }
 
 async function onSave() {
@@ -258,6 +308,7 @@ async function onSave() {
     return
   }
   saving.value = true
+  form.schema_filter = schemaList.value.join(',') || 'public'
   try {
     if (form.id) {
       const payload: any = {

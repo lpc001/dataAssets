@@ -68,6 +68,21 @@ class PostgresAdapter(MetadataAdapter):
         except Exception:  # noqa: BLE001
             return None
 
+    def list_schemas(self) -> list[str]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    select schema_name from information_schema.schemata
+                     where schema_name not in ('pg_catalog', 'information_schema')
+                       and schema_name not like 'pg_toast%'
+                       and schema_name not like 'pg_temp%'
+                     order by 1
+                    """
+                )
+            ).fetchall()
+        return [r[0] for r in rows]
+
     def fetch_sample(
         self, schema: str, table: str, limit: int = 20, columns: list[str] | None = None
     ) -> tuple[list[str], list[list]]:

@@ -46,6 +46,19 @@ class DataSourceOut(BaseModel):
     remark: str | None
 
 
+class SchemaQueryIn(BaseModel):
+    host: str
+    port: int = 5432
+    database_name: str
+    username: str
+    password: str | None = None
+    datasource_id: int | None = None
+
+
+class SchemaListOut(BaseModel):
+    schemas: list[str]
+
+
 class ConnectionTestResult(BaseModel):
     ok: bool
     readonly: bool

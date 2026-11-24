@@ -80,6 +80,17 @@ export function syncDatasource(id: number): Promise<MetaVersion> {
   return http.post(`/datasources/${id}/sync`, null, { timeout: 180000 }).then((r) => r.data)
 }
 
+export function fetchSchemas(payload: {
+  host: string
+  port: number
+  database_name: string
+  username: string
+  password?: string
+  datasource_id?: number
+}): Promise<{ schemas: string[] }> {
+  return http.post('/datasources/schemas', payload).then((r) => r.data)
+}
+
 export function listVersions(id: number): Promise<MetaVersion[]> {
   return http.get(`/datasources/${id}/versions`).then((r) => r.data)
 }

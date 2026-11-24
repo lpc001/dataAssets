@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.adapters.postgres import PostgresAdapter
+from app.adapters.postgres import PostgresAdapter, build_url
 from app.api.deps import get_current_user
 from app.core.crypto import decrypt_text
 from app.core.database import get_db
@@ -18,6 +18,8 @@ from app.models.resource_table import ResourceTable
 from app.models.user import User
 from app.schemas.datasource import (
     ConnectionTestResult,
+    SchemaListOut,
+    SchemaQueryIn,
     DataSourceCreate,
     DataSourceOut,
     DataSourceUpdate,
@@ -112,6 +114,29 @@ def delete_datasource(
         db.execute(delete(MetaVersion).where(MetaVersion.id.in_(version_ids)))
     db.delete(row)
     db.commit()
+
+
+@router.post("/schemas", response_model=SchemaListOut)
+def list_schemas(
+    payload: SchemaQueryIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:datasource")),
+):
+    password = payload.password
+    if not password and payload.datasource_id:
+        row = crud.get(db, payload.datasource_id)
+        password = decrypt_text(row.password_cipher) if row else ""
+    if not password:
+        raise HTTPException(status_code=400, detail="请先填写口令")
+    url = build_url(payload.host, payload.port, payload.database_name, payload.username, password)
+    adapter = PostgresAdapter(url)
+    try:
+        schemas = adapter.list_schemas()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"读取 Schema 失败：{exc.__class__.__name__}") from exc
+    finally:
+        adapter.dispose()
+    return SchemaListOut(schemas=schemas)
 
 
 @router.post("/{datasource_id}/test", response_model=ConnectionTestResult)
