@@ -87,8 +87,8 @@ def create_domain(
     user: User = Depends(require_perm("ast:catalog")),
 ):
     code = payload.domain_code.strip().lower()
-    if not re.fullmatch(r"[a-z]{3,8}", code):
-        raise HTTPException(status_code=422, detail="域码只能由 3-8 位小写字母组成")
+    if not re.fullmatch(r"[a-z][a-z0-9]{1,7}", code):
+        raise HTTPException(status_code=422, detail="域码需为 2-8 位小写字母或数字，且以字母开头")
     if db.scalars(select(Domain).where(Domain.domain_code == code)).first():
         raise HTTPException(status_code=409, detail="域码已存在")
     row = Domain(
