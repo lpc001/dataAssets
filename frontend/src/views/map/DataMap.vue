@@ -44,8 +44,36 @@
           <button @click="focusDomain = ''">返回全域</button>
         </div>
 
+        <div class="hotspots" v-if="view !== 'city' && !keyword">
+          <button
+            v-for="z in zones"
+            :key="z.code"
+            class="hotspot"
+            :class="{ active: zoneDomain === z.code }"
+            :style="{ left: z.x + '%', top: z.y + '%' }"
+            @click="onZoneClick(z.code)"
+          ></button>
+        </div>
+
         <div class="empty-tip" v-if="!loading && !visibleAssets.length">没有匹配的资产</div>
       </div>
+
+      <aside class="detail" v-if="!current && zoneDomain">
+        <div class="detail-close" @click="closeZone">×</div>
+        <div class="detail-domain">数据域</div>
+        <div class="detail-name">{{ domainName(zoneDomain) }}</div>
+        <div class="detail-code">{{ zoneAssets.length }} 个已发布资产</div>
+        <div class="zone-list">
+          <button v-for="a in zoneAssets" :key="a.id" class="zone-item" @click="current = a">
+            <span class="zi-name">{{ a.asset_name }}</span>
+            <span class="zi-meta">{{ fmtNumber(a.rows) }} 行 · {{ a.columns }} 字段</span>
+          </button>
+        </div>
+        <div class="detail-actions">
+          <button @click="focusDomain = zoneDomain">在图中聚焦</button>
+          <button @click="closeZone">关闭</button>
+        </div>
+      </aside>
 
       <aside class="detail" v-if="current">
         <div class="detail-close" @click="current = null">×</div>
@@ -120,6 +148,8 @@ const keyword = ref('')
 const focusDomain = ref('')
 const current = ref<MapAsset | null>(null)
 const hoverAsset = ref<MapAsset | null>(null)
+const zoneDomain = ref('')
+const stageSize = ref({ w: 0, h: 0 })
 
 const chartEl = ref<HTMLDivElement | null>(null)
 const canvasEl = ref<HTMLCanvasElement | null>(null)
@@ -196,6 +226,35 @@ function setView(next: 'water' | 'matrix' | 'city') {
 
 function toggleDomain(code: string) {
   focusDomain.value = focusDomain.value === code ? '' : code
+}
+
+const zones = computed(() => {
+  const { w, h } = stageSize.value
+  if (!w || !h) return []
+  return data.value.domains.map((d) => {
+    const pos = CHAIN_POS[d.domain_code] || EXTRA_POS[d.domain_code] || [0.5, 0.5]
+    const [x, y] = anchorToStage(pos, w, h)
+    return { code: d.domain_code, name: d.domain_name, x: x * 100, y: y * 100, count: d.asset_count }
+  })
+})
+
+const zoneAssets = computed(() =>
+  data.value.assets.filter((a) => a.domain_code === zoneDomain.value && a.status === 'PUBLISHED'),
+)
+
+function onZoneClick(code: string) {
+  if (zoneDomain.value === code) {
+    closeZone()
+    return
+  }
+  zoneDomain.value = code
+  focusDomain.value = code
+  current.value = null
+}
+
+function closeZone() {
+  zoneDomain.value = ''
+  focusDomain.value = ''
 }
 
 function onAssetClick(asset: MapAsset) {
@@ -536,8 +595,10 @@ watch([keyword, focusDomain], () => {
 
 onMounted(async () => {
   await load()
+  if (chartEl.value) stageSize.value = { w: chartEl.value.clientWidth, h: chartEl.value.clientHeight }
   if (chartEl.value) {
     resizeObserver = new ResizeObserver(() => {
+      if (chartEl.value) stageSize.value = { w: chartEl.value.clientWidth, h: chartEl.value.clientHeight }
       chart?.resize()
       if (view.value === 'water') renderChart()
       if (view.value === 'city') drawCity()
@@ -600,4 +661,13 @@ onBeforeUnmount(() => {
 .legend-item i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .legend-item em { font-style: normal; color: #5B7083; }
 .legend-item.dim { opacity: 0.35; }
+.hotspots { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.hotspot { position: absolute; width: 124px; height: 82px; transform: translate(-50%, -50%); border: 1px dashed transparent; border-radius: 16px; background: transparent; pointer-events: auto; cursor: pointer; transition: all 0.2s ease; padding: 0; }
+.hotspot:hover { border-color: rgba(10, 132, 255, 0.45); background: rgba(10, 132, 255, 0.05); box-shadow: 0 0 26px rgba(10, 132, 255, 0.14); }
+.hotspot.active { border-color: #0A84FF; background: rgba(10, 132, 255, 0.08); }
+.zone-list { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow: auto; }
+.zone-item { text-align: left; background: #F7FBFF; border: 1px solid #E1EEF9; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.zone-item:hover { border-color: #B9DCF7; background: #EFF8FF; }
+.zi-name { display: block; font-size: 13px; color: #0F2B46; }
+.zi-meta { display: block; font-size: 11px; color: #7FA3C4; margin-top: 2px; }
 </style>
