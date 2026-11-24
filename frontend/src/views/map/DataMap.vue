@@ -83,8 +83,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { fetchDataMap, type DataMap, type MapAsset } from '@/api/catalog'
 
-// 全部取自平台主色系（清亮蓝 → 青蓝），不引入暖色
-const PALETTE = ['#0A84FF', '#2E9BFF', '#5AC8FA', '#38BDF8', '#22B8CF', '#4F8DF7', '#6C8CFF', '#3AA6C9', '#5BC8E8', '#7FA8FF']
+// 品牌蓝为锚点，向青/紫/绿/琥珀发散的水务谱系：既有区分度，又不会全蓝疲劳
+const PALETTE = ['#0A84FF', '#12A8D8', '#4F7CFF', '#7C6CF0', '#9B7CFF', '#17A2B8', '#2BB39B', '#5B8DEF', '#E0A23F', '#6FA84F']
 const GROUP_COLORS: Record<string, string> = { PUBLIC: '#7FA3C4', TOPIC: '#6C8CFF', OTHER: '#8FA8C4', DOMAIN: '#0A84FF' }
 
 // 水务价值链顺序：源头 → 制水 → 输配 → 计量收费 → 服务 → 排水
