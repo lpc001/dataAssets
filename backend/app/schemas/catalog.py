@@ -181,6 +181,36 @@ class AssetPage(BaseModel):
     total: int
 
 
+class MapDomain(BaseModel):
+    domain_code: str
+    domain_name: str
+    asset_count: int
+    column_count: int
+    row_sum: int
+
+
+class MapAsset(BaseModel):
+    id: int
+    asset_code: str | None
+    asset_name: str
+    table_name: str
+    domain_code: str | None
+    group_type: str
+    layer: str | None
+    rows: int | None
+    columns: int
+    status: str
+
+
+class DataMapOut(BaseModel):
+    domain_count: int
+    asset_count: int
+    column_count: int
+    published_count: int
+    domains: list[MapDomain]
+    assets: list[MapAsset]
+
+
 class SummaryOut(BaseModel):
     datasource_count: int
     resource_count: int

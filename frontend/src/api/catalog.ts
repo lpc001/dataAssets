@@ -126,6 +126,40 @@ export function listResources(params: Record<string, unknown>): Promise<Resource
   return http.get('/resources', { params }).then((r) => r.data)
 }
 
+export interface MapAsset {
+  id: number
+  asset_code: string | null
+  asset_name: string
+  table_name: string
+  domain_code: string | null
+  group_type: string
+  layer: string | null
+  rows: number | null
+  columns: number
+  status: string
+}
+
+export interface MapDomain {
+  domain_code: string
+  domain_name: string
+  asset_count: number
+  column_count: number
+  row_sum: number
+}
+
+export interface DataMap {
+  domain_count: number
+  asset_count: number
+  column_count: number
+  published_count: number
+  domains: MapDomain[]
+  assets: MapAsset[]
+}
+
+export function fetchDataMap(): Promise<DataMap> {
+  return http.get('/data-map').then((r) => r.data)
+}
+
 export interface PreviewData {
   columns: string[]
   rows: (string | number | boolean | null)[][]

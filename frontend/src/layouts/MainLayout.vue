@@ -99,6 +99,7 @@ interface MenuItem {
 }
 
 const allMenus: MenuItem[] = [
+  { path: '/map', title: '数据全景', group: '数据资产', anyPerm: ['ast:catalog'] },
   { path: '/datasource', title: '数据源管理', group: '数据资产', anyPerm: ['ast:datasource'] },
   { path: '/resources', title: '资源池', group: '数据资产', anyPerm: ['ast:catalog'] },
   { path: '/catalog', title: '资产目录', group: '数据资产', anyPerm: ['ast:catalog'] },

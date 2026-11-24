@@ -54,6 +54,12 @@ const router = createRouter({
           meta: { title: '品牌设置', group: '系统管理', anyPerm: ['system:brand'] },
         },
         {
+          path: 'map',
+          name: 'data-map',
+          component: () => import('@/views/map/DataMap.vue'),
+          meta: { title: '数据全景', group: '数据资产', anyPerm: ['ast:catalog'] },
+        },
+        {
           path: 'datasource',
           name: 'datasource',
           component: () => import('@/views/datasource/DataSourceList.vue'),

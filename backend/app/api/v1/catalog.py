@@ -9,14 +9,19 @@ from app.core.database import get_db
 from app.crud import asset as asset_crud
 from app.crud import resource as resource_crud
 from app.models.domain import Domain
+from app.models.resource_table import ResourceTable
 from app.models.subject import Subject
 from app.models.user import User
 from sqlalchemy import func
 
 from app.models.asset import Asset
+from app.models.asset_column import AssetColumn
 from app.models.datasource import DataSource
 from app.schemas.catalog import (
     AssetColumnOut,
+    DataMapOut,
+    MapAsset,
+    MapDomain,
     AssetColumnPatch,
     AssetDetail,
     AssetOut,
@@ -403,6 +408,71 @@ def register(
         if resource is not None:
             result.append(_asset_out(asset, resource))
     return result
+
+
+@router.get("/data-map", response_model=DataMapOut)
+def data_map(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_perm("ast:catalog")),
+):
+    domain_rows = list(db.scalars(select(Domain).order_by(Domain.sort)).all())
+    rows = db.execute(
+        select(Asset, ResourceTable)
+        .join(ResourceTable, ResourceTable.id == Asset.resource_table_id)
+    ).all()
+    column_counts = dict(
+        db.execute(
+            select(AssetColumn.asset_id, func.count()).group_by(AssetColumn.asset_id)
+        ).all()
+    )
+
+    assets = []
+    domain_agg: dict[str, dict] = {}
+    for asset, resource in rows:
+        cols = int(column_counts.get(asset.id, 0))
+        assets.append(
+            MapAsset(
+                id=asset.id,
+                asset_code=asset.asset_code,
+                asset_name=asset.asset_name,
+                table_name=resource.table_name,
+                domain_code=asset.domain_code,
+                group_type=asset.group_type,
+                layer=resource.suggested_layer,
+                rows=resource.row_count,
+                columns=cols,
+                status=asset.status,
+            )
+        )
+        if asset.domain_code:
+            agg = domain_agg.setdefault(
+                asset.domain_code, {"asset_count": 0, "column_count": 0, "row_sum": 0}
+            )
+            agg["asset_count"] += 1
+            agg["column_count"] += cols
+            agg["row_sum"] += resource.row_count or 0
+
+    domains = []
+    for domain in domain_rows:
+        agg = domain_agg.get(domain.domain_code, {"asset_count": 0, "column_count": 0, "row_sum": 0})
+        domains.append(
+            MapDomain(
+                domain_code=domain.domain_code,
+                domain_name=domain.domain_name,
+                asset_count=agg["asset_count"],
+                column_count=agg["column_count"],
+                row_sum=agg["row_sum"],
+            )
+        )
+
+    return DataMapOut(
+        domain_count=len(domain_rows),
+        asset_count=len(assets),
+        column_count=sum(column_counts.values()),
+        published_count=sum(1 for a in assets if a.status == "PUBLISHED"),
+        domains=domains,
+        assets=assets,
+    )
 
 
 @router.get("/asset-summary", response_model=SummaryOut)
