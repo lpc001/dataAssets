@@ -25,9 +25,9 @@
       <div class="stage" @click="onStageClick">
         <img class="water-bg" src="/water-cycle.png" alt="" />
         <div class="veil"></div>
-        <div v-show="view !== 'city'" ref="chartEl" class="chart"></div>
+        <div v-show="view !== 'plate'" ref="chartEl" class="chart"></div>
         <canvas
-          v-show="view === 'city'"
+          v-show="view === 'plate'"
           ref="canvasEl"
           class="city"
           @click="onCanvasClick"
@@ -44,7 +44,7 @@
           <button @click="focusDomain = ''">返回全域</button>
         </div>
 
-        <div class="hotspots" v-if="view !== 'city' && !keyword">
+        <div class="hotspots" v-if="view !== 'plate' && !keyword">
           <button
             v-for="z in zones"
             :key="z.code"
@@ -150,7 +150,7 @@ function anchorToStage(pos: [number, number], cw: number, ch: number): [number, 
 
 const data = ref<DataMap>({ domain_count: 0, asset_count: 0, column_count: 0, published_count: 0, domains: [], assets: [] })
 const loading = ref(true)
-const view = ref<'water' | 'matrix' | 'city'>('water')
+const view = ref<'water' | 'matrix' | 'plate'>('water')
 const keyword = ref('')
 const focusDomain = ref('')
 const current = ref<MapAsset | null>(null)
@@ -167,7 +167,7 @@ let cityHits: { asset: MapAsset; x: number; y: number; w: number; h: number }[] 
 const views = [
   { key: 'water', label: '水脉' },
   { key: 'matrix', label: '矩阵' },
-  { key: 'city', label: '城市' },
+  { key: 'plate', label: '板块' },
 ] as const
 
 const kpis = computed(() => [
@@ -226,10 +226,10 @@ const visibleAssets = computed(() => {
   })
 })
 
-function setView(next: 'water' | 'matrix' | 'city') {
+function setView(next: 'water' | 'matrix' | 'plate') {
   view.value = next
   current.value = null
-  nextTick(() => (next === 'city' ? drawCity() : renderChart()))
+  nextTick(() => (next === 'plate' ? drawCity() : renderChart()))
 }
 
 function toggleDomain(code: string) {
@@ -476,7 +476,7 @@ function renderChart() {
   })
 }
 
-// ---------------- 城市 ----------------
+// ---------------- 板块 ----------------
 function drawCity() {
   const canvas = canvasEl.value
   if (!canvas) return
@@ -610,7 +610,7 @@ async function load() {
 
 watch([keyword, focusDomain], () => {
   current.value = null
-  if (view.value === 'city') drawCity()
+  if (view.value === 'plate') drawCity()
   else renderChart()
 })
 
@@ -622,7 +622,7 @@ onMounted(async () => {
       if (chartEl.value) stageSize.value = { w: chartEl.value.clientWidth, h: chartEl.value.clientHeight }
       chart?.resize()
       if (view.value === 'water') renderChart()
-      if (view.value === 'city') drawCity()
+      if (view.value === 'plate') drawCity()
     })
     resizeObserver.observe(chartEl.value.parentElement as Element)
   }
