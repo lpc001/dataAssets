@@ -96,7 +96,7 @@ const CHAIN_POS: Record<string, [number, number]> = {
   dsp: [0.481, 0.334],
   net: [0.593, 0.382],
   mkt: [0.718, 0.208],
-  svc: [0.955, 0.200],
+  svc: [0.945, 0.200],
   drn: [0.737, 0.677],
 }
 const EXTRA_POS: Record<string, [number, number]> = {
