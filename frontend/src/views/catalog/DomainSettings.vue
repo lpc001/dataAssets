@@ -11,32 +11,6 @@
       </div>
     </div>
 
-    <div class="card map-card">
-      <div class="map-head">
-        <div>
-          <div class="map-title">地图锚点</div>
-          <div class="map-sub">拖动圆点到底图上对应的设施位置，保存后「数据全景」按此定位</div>
-        </div>
-        <div class="map-actions">
-          <el-button @click="resetAnchors">恢复默认</el-button>
-          <el-button type="primary" :loading="savingAnchors" @click="saveAnchors">保存锚点</el-button>
-        </div>
-      </div>
-      <div ref="mapEl" class="map-editor">
-        <div
-          v-for="d in rows"
-          :key="d.domain_code"
-          class="pin"
-          :class="{ dragging: dragCode === d.domain_code }"
-          :style="{ left: pct(anchorOf(d).x), top: pct(anchorOf(d).y) }"
-          @pointerdown.prevent="startDrag(d.domain_code)"
-        >
-          <i :style="{ background: colorOf(d.domain_code) }"></i>
-          <span>{{ d.domain_name }}</span>
-        </div>
-      </div>
-    </div>
-
     <div class="card table-card">
       <el-table :data="rows" v-loading="loading">
         <el-table-column label="域码" width="110">
@@ -63,6 +37,40 @@
           </template>
         </el-table-column>
       </el-table>
+    </div>
+
+    <div class="card map-card">
+      <div class="map-head">
+        <div>
+          <div class="map-title">
+            地图锚点
+            <el-tag size="small" type="info" effect="plain">低频</el-tag>
+          </div>
+          <div class="map-sub">拖动圆点到底图上对应的设施位置，保存后「数据全景」按此定位</div>
+        </div>
+        <div class="map-actions">
+          <template v-if="anchorOpen">
+            <el-button @click="resetAnchors">恢复默认</el-button>
+            <el-button type="primary" :loading="savingAnchors" @click="saveAnchors">保存锚点</el-button>
+          </template>
+          <el-button :type="anchorOpen ? 'default' : 'primary'" plain @click="anchorOpen = !anchorOpen">
+            {{ anchorOpen ? '收起' : '展开配置' }}
+          </el-button>
+        </div>
+      </div>
+      <div v-show="anchorOpen" ref="mapEl" class="map-editor">
+        <div
+          v-for="d in rows"
+          :key="d.domain_code"
+          class="pin"
+          :class="{ dragging: dragCode === d.domain_code }"
+          :style="{ left: pct(anchorOf(d).x), top: pct(anchorOf(d).y) }"
+          @pointerdown.prevent="startDrag(d.domain_code)"
+        >
+          <i :style="{ background: colorOf(d.domain_code) }"></i>
+          <span>{{ d.domain_name }}</span>
+        </div>
+      </div>
     </div>
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑数据域' : '新增数据域'" width="520px">
@@ -108,6 +116,7 @@ const mapEl = ref<HTMLDivElement | null>(null)
 const anchors = reactive<Record<string, { x: number; y: number }>>({})
 const savingAnchors = ref(false)
 const dragCode = ref('')
+const anchorOpen = ref(false)
 
 function colorOf(code: string) {
   const i = rows.value.findIndex((r) => r.domain_code === code)
