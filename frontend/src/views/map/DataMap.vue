@@ -22,7 +22,7 @@
     </header>
 
     <main class="stage-wrap">
-      <div class="stage">
+      <div class="stage" @click="onStageClick">
         <img class="water-bg" src="/water-cycle.png" alt="" />
         <div class="veil"></div>
         <div v-show="view !== 'city'" ref="chartEl" class="chart"></div>
@@ -56,6 +56,7 @@
         </div>
 
         <div class="empty-tip" v-if="!loading && !visibleAssets.length">没有匹配的资产</div>
+        <div class="calib-hint" v-if="calib">校准模式：点击设施中心，会显示图片归一化坐标</div>
       </div>
 
       <aside class="detail" v-if="!current && zoneDomain">
@@ -109,6 +110,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { fetchDataMap, type DataMap, type MapAsset } from '@/api/catalog'
 
@@ -127,9 +129,9 @@ const CHAIN_POS: Record<string, [number, number]> = {
   drn: [0.737, 0.677],
 }
 const EXTRA_POS: Record<string, [number, number]> = {
-  wqm: [0.085, 0.742],
-  ast: [0.322, 0.694],
-  prj: [0.488, 0.668],
+  wqm: [0.080, 0.752],
+  ast: [0.312, 0.704],
+  prj: [0.478, 0.680],
   she: [0.910, 0.800],
 }
 
@@ -150,6 +152,7 @@ const current = ref<MapAsset | null>(null)
 const hoverAsset = ref<MapAsset | null>(null)
 const zoneDomain = ref('')
 const stageSize = ref({ w: 0, h: 0 })
+const calib = typeof window !== 'undefined' && window.location.search.includes('calib')
 
 const chartEl = ref<HTMLDivElement | null>(null)
 const canvasEl = ref<HTMLCanvasElement | null>(null)
@@ -255,6 +258,21 @@ function onZoneClick(code: string) {
 function closeZone() {
   zoneDomain.value = ''
   focusDomain.value = ''
+}
+
+function onStageClick(e: MouseEvent) {
+  if (!calib || !chartEl.value) return
+  const rect = chartEl.value.getBoundingClientRect()
+  const px = (e.clientX - rect.left) / rect.width
+  const py = (e.clientY - rect.top) / rect.height
+  const h = Math.max(rect.height, rect.width / IMG_RATIO)
+  const w = h * IMG_RATIO
+  const ox = (rect.width - w) / 2
+  const oy = (rect.height - h) / 2
+  const ix = (px * rect.width - ox) / w
+  const iy = (py * rect.height - oy) / h
+  ElMessage.info(`${ix.toFixed(3)}, ${iy.toFixed(3)}`)
+  console.log('anchor', ix.toFixed(3), iy.toFixed(3))
 }
 
 function onAssetClick(asset: MapAsset) {
@@ -670,4 +688,5 @@ onBeforeUnmount(() => {
 .zone-item:hover { border-color: #B9DCF7; background: #EFF8FF; }
 .zi-name { display: block; font-size: 13px; color: #0F2B46; }
 .zi-meta { display: block; font-size: 11px; color: #7FA3C4; margin-top: 2px; }
+.calib-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); background: rgba(10, 132, 255, 0.9); color: #fff; font-size: 12px; padding: 6px 14px; border-radius: 999px; z-index: 6; }
 </style>
