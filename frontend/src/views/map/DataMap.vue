@@ -23,7 +23,7 @@
 
     <main class="stage-wrap">
       <div class="stage">
-        <WaterCycleBg class="water-bg" />
+        <img class="water-bg" src="/water-cycle.png" alt="" />
         <div class="veil"></div>
         <div v-show="view !== 'city'" ref="chartEl" class="chart"></div>
         <canvas
@@ -83,27 +83,36 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { fetchDataMap, type DataMap, type MapAsset } from '@/api/catalog'
-import WaterCycleBg from '@/components/WaterCycleBg.vue'
 
 // 品牌蓝为锚点，向青/紫/绿/琥珀发散的水务谱系：既有区分度，又不会全蓝疲劳
 const PALETTE = ['#0A84FF', '#12A8D8', '#4F7CFF', '#7C6CF0', '#9B7CFF', '#17A2B8', '#2BB39B', '#5B8DEF', '#E0A23F', '#6FA84F']
 const GROUP_COLORS: Record<string, string> = { PUBLIC: '#7FA3C4', TOPIC: '#6C8CFF', OTHER: '#8FA8C4', DOMAIN: '#0A84FF' }
 
 // 水务价值链顺序：源头 → 制水 → 输配 → 计量收费 → 服务 → 排水
-// 锚点与底图设施一一对应（水厂/泵站/管网/城市/客服/污水厂/监测点/维护基地/工地/排放口）
+// 底图为 2048x1152（16:9），锚点按图片归一化坐标标注，渲染时再换算到容器
+const IMG_RATIO = 2048 / 1152
 const CHAIN_POS: Record<string, [number, number]> = {
-  prd: [0.355, 0.17],
-  dsp: [0.44, 0.52],
-  net: [0.53, 0.35],
-  mkt: [0.66, 0.35],
-  svc: [0.84, 0.32],
-  drn: [0.67, 0.67],
+  prd: [0.273, 0.330],
+  dsp: [0.481, 0.334],
+  net: [0.593, 0.382],
+  mkt: [0.718, 0.208],
+  svc: [0.955, 0.200],
+  drn: [0.737, 0.677],
 }
 const EXTRA_POS: Record<string, [number, number]> = {
-  wqm: [0.097, 0.70],
-  ast: [0.373, 0.72],
-  prj: [0.537, 0.73],
-  she: [0.85, 0.69],
+  wqm: [0.085, 0.742],
+  ast: [0.322, 0.694],
+  prj: [0.488, 0.668],
+  she: [0.910, 0.800],
+}
+
+// background-size: cover 的换算：把图片归一化坐标映射到容器百分比
+function anchorToStage(pos: [number, number], cw: number, ch: number): [number, number] {
+  const h = Math.max(ch, cw / IMG_RATIO)
+  const w = h * IMG_RATIO
+  const ox = (cw - w) / 2
+  const oy = (ch - h) / 2
+  return [(ox + pos[0] * w) / cw, (oy + pos[1] * h) / ch]
 }
 
 const data = ref<DataMap>({ domain_count: 0, asset_count: 0, column_count: 0, published_count: 0, domains: [], assets: [] })
@@ -205,8 +214,9 @@ function waterOption() {
 
   data.value.domains.forEach((d) => {
     const pos = CHAIN_POS[d.domain_code] || EXTRA_POS[d.domain_code] || [0.5, 0.5]
-    const x = pos[0] * width
-    const y = pos[1] * height
+    const [ax, ay] = anchorToStage(pos, width, height)
+    const x = ax * width
+    const y = ay * height
     const empty = d.asset_count === 0
     nodes.push({
       id: 'd:' + d.domain_code,
@@ -224,7 +234,7 @@ function waterOption() {
       },
       label: {
         show: true,
-        position: 'bottom',
+        position: d.domain_code === 'svc' ? 'left' : 'bottom',
         distance: empty ? 4 : 12,
         color: empty ? 'rgba(15, 43, 70, 0.32)' : '#0F2B46',
         fontSize: empty ? 11 : 12,
@@ -549,8 +559,8 @@ onBeforeUnmount(() => {
 .search::placeholder { color: #93A8BC; }
 .stage-wrap { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
 .stage { position: relative; flex: 1; min-width: 0; height: calc(100vh - 230px); min-height: 480px; background: #FFFFFF; border: 1px solid #DCEBFA; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 24px rgba(10, 132, 255, 0.08); }
-.water-bg { position: absolute; inset: 0; }
-.veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,0.42), rgba(255,255,255,0.56)); pointer-events: none; }
+.water-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; }
+.veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.26)); pointer-events: none; }
 .chart, .city { width: 100%; height: 100%; display: block; position: relative; z-index: 2; }
 .river-legend { position: absolute; left: 18px; bottom: 14px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5B7083; background: rgba(255,255,255,0.75); padding: 6px 12px; border-radius: 999px; border: 1px solid #E1EEF9; }
 .river-legend i { width: 22px; height: 2px; background: linear-gradient(90deg, rgba(10,132,255,0.15), rgba(10,132,255,0.55)); border-radius: 2px; display: inline-block; }
