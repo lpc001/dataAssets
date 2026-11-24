@@ -3,7 +3,7 @@
     <header class="top">
       <div class="title-block">
         <div class="title">数据全景</div>
-        <div class="subtitle">按数据域组织的资产星图 · 发现、定位、下钻</div>
+        <div class="subtitle">从源头到龙头的水脉视图 · 发现、定位、下钻</div>
       </div>
       <div class="kpis">
         <div class="kpi" v-for="k in kpis" :key="k.label">
@@ -23,6 +23,7 @@
 
     <main class="stage-wrap">
       <div class="stage">
+        <div class="waves"></div>
         <div v-show="view !== 'city'" ref="chartEl" class="chart"></div>
         <canvas
           v-show="view === 'city'"
@@ -32,6 +33,10 @@
           @mousemove="onCanvasMove"
           @mouseleave="hoverAsset = null"
         ></canvas>
+
+        <div class="river-legend" v-if="view === 'water'">
+          <span>源头</span><i></i><span>制水</span><i></i><span>输配</span><i></i><span>计量收费</span><i></i><span>服务</span><i></i><span>排水</span>
+        </div>
 
         <div class="focus-chip" v-if="focusDomain">
           已聚焦：{{ domainName(focusDomain) }}
@@ -54,7 +59,6 @@
         </div>
         <div class="detail-actions">
           <button class="primary" @click="$router.push(`/catalog/${current.id}`)">查看资产详情</button>
-          <button @click="$router.push(`/catalog/${current.id}`)">数据预览</button>
         </div>
       </aside>
     </main>
@@ -79,11 +83,29 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { fetchDataMap, type DataMap, type MapAsset } from '@/api/catalog'
 
-const PALETTE = ['#3DD6F5', '#7C6CFF', '#FF7AC6', '#4FE3A1', '#FFC457', '#FF8A5B', '#5AA9FF', '#B98BFF', '#3EDBD3', '#F26D85']
+// 全部取自平台主色系（清亮蓝 → 青蓝），不引入暖色
+const PALETTE = ['#0A84FF', '#2E9BFF', '#5AC8FA', '#38BDF8', '#22B8CF', '#4F8DF7', '#6C8CFF', '#3AA6C9', '#5BC8E8', '#7FA8FF']
+const GROUP_COLORS: Record<string, string> = { PUBLIC: '#7FA3C4', TOPIC: '#6C8CFF', OTHER: '#8FA8C4', DOMAIN: '#0A84FF' }
+
+// 水务价值链顺序：源头 → 制水 → 输配 → 计量收费 → 服务 → 排水
+const CHAIN_POS: Record<string, [number, number]> = {
+  prd: [0.1, 0.3],
+  dsp: [0.26, 0.68],
+  net: [0.44, 0.3],
+  mkt: [0.6, 0.68],
+  svc: [0.78, 0.3],
+  drn: [0.92, 0.62],
+}
+const EXTRA_POS: Record<string, [number, number]> = {
+  wqm: [0.16, 0.86],
+  ast: [0.42, 0.88],
+  prj: [0.7, 0.86],
+  she: [0.88, 0.86],
+}
 
 const data = ref<DataMap>({ domain_count: 0, asset_count: 0, column_count: 0, published_count: 0, domains: [], assets: [] })
 const loading = ref(true)
-const view = ref<'star' | 'matrix' | 'city'>('star')
+const view = ref<'water' | 'matrix' | 'city'>('water')
 const keyword = ref('')
 const focusDomain = ref('')
 const current = ref<MapAsset | null>(null)
@@ -95,7 +117,7 @@ let chart: echarts.ECharts | null = null
 let cityHits: { asset: MapAsset; x: number; y: number; w: number; h: number }[] = []
 
 const views = [
-  { key: 'star', label: '星图' },
+  { key: 'water', label: '水脉' },
   { key: 'matrix', label: '矩阵' },
   { key: 'city', label: '城市' },
 ] as const
@@ -114,8 +136,13 @@ const domainColor = computed(() => {
 })
 
 function colorOf(code: string | null) {
-  if (!code) return '#5B7083'
-  return domainColor.value[code] || '#5B7083'
+  if (!code) return '#7FA3C4'
+  return domainColor.value[code] || '#7FA3C4'
+}
+
+function assetColor(asset: MapAsset) {
+  if (asset.domain_code) return colorOf(asset.domain_code)
+  return GROUP_COLORS[asset.group_type] || '#7FA3C4'
 }
 
 function domainName(code: string | null) {
@@ -151,7 +178,7 @@ const visibleAssets = computed(() => {
   })
 })
 
-function setView(next: 'star' | 'matrix' | 'city') {
+function setView(next: 'water' | 'matrix' | 'city') {
   view.value = next
   current.value = null
   nextTick(() => (next === 'city' ? drawCity() : renderChart()))
@@ -165,57 +192,105 @@ function onAssetClick(asset: MapAsset) {
   current.value = asset
 }
 
-// ---------------- star / matrix ----------------
-function starOption() {
-  const assets = visibleAssets.value
+// ---------------- 水脉视图 ----------------
+function waterOption() {
+  const width = chartEl.value?.clientWidth || 900
+  const height = chartEl.value?.clientHeight || 520
   const nodes: any[] = []
   const links: any[] = []
-  const activeDomains = new Set(assets.map((a) => a.domain_code || 'public'))
+  const assets = visibleAssets.value
 
   data.value.domains.forEach((d) => {
-    if (!activeDomains.has(d.domain_code) && d.asset_count === 0) {
-      nodes.push({
-        id: 'd:' + d.domain_code,
-        name: d.domain_name,
-        symbolSize: 14,
-        itemStyle: { color: colorOf(d.domain_code), opacity: 0.28 },
-        label: { show: true, color: 'rgba(220, 235, 255, 0.45)', fontSize: 11 },
-        category: 'domain',
-      })
-      return
-    }
+    const pos = CHAIN_POS[d.domain_code] || EXTRA_POS[d.domain_code] || [0.5, 0.5]
+    const x = pos[0] * width
+    const y = pos[1] * height
+    const empty = d.asset_count === 0
     nodes.push({
       id: 'd:' + d.domain_code,
       name: d.domain_name,
-      symbolSize: 30 + Math.min(26, Math.sqrt(d.asset_count) * 8),
-      itemStyle: { color: colorOf(d.domain_code), shadowBlur: 30, shadowColor: colorOf(d.domain_code) },
-      label: { show: true, color: '#E6F4FF', fontSize: 13, fontWeight: 600 },
-      category: 'domain',
+      x,
+      y,
+      symbol: 'circle',
+      symbolSize: empty ? 8 : 18 + Math.min(20, Math.sqrt(d.asset_count) * 5),
+      itemStyle: {
+        color: empty ? 'rgba(10, 132, 255, 0.12)' : colorOf(d.domain_code),
+        shadowBlur: empty ? 0 : 18,
+        shadowColor: 'rgba(10, 132, 255, 0.35)',
+        borderColor: empty ? 'rgba(10, 132, 255, 0.25)' : 'rgba(255, 255, 255, 0.9)',
+        borderWidth: empty ? 1 : 2,
+      },
+      label: {
+        show: true,
+        position: 'bottom',
+        distance: 8,
+        color: empty ? 'rgba(15, 43, 70, 0.35)' : '#0F2B46',
+        fontSize: 12,
+        fontWeight: 600,
+      },
+    })
+
+    const items = assets.filter((a) => a.domain_code === d.domain_code)
+    const angleStep = (Math.PI * 2) / Math.max(items.length, 1)
+    items.forEach((a, i) => {
+      const radius = 46 + Math.sqrt(i) * 9
+      const angle = i * angleStep + (d.domain_code.length % 3) * 0.4
+      nodes.push({
+        id: 'a:' + a.id,
+        name: a.asset_name,
+        x: x + Math.cos(angle) * radius,
+        y: y + Math.sin(angle) * radius,
+        symbolSize: 5 + Math.min(9, Math.sqrt(a.rows || 0) / 9),
+        itemStyle: { color: assetColor(a), opacity: 0.8 },
+        label: { show: false },
+        asset: a,
+      })
+      links.push({
+        source: 'd:' + d.domain_code,
+        target: 'a:' + a.id,
+        lineStyle: { color: 'rgba(10, 132, 255, 0.18)', width: 1, curveness: 0.12 },
+      })
     })
   })
-  assets.forEach((a) => {
+
+  // 水脉主线：按价值链串联各域，形成从源头到排水的流向
+  const chainOrder = ['prd', 'dsp', 'net', 'mkt', 'svc', 'drn']
+  for (let i = 0; i < chainOrder.length - 1; i += 1) {
+    const from = chainOrder[i]
+    const to = chainOrder[i + 1]
+    if (!data.value.domains.some((d) => d.domain_code === from)) continue
+    if (!data.value.domains.some((d) => d.domain_code === to)) continue
+    links.unshift({
+      source: 'd:' + from,
+      target: 'd:' + to,
+      lineStyle: { color: 'rgba(10, 132, 255, 0.12)', width: 9, curveness: 0.18, opacity: 0.9 },
+      silent: true,
+    })
+  }
+
+  // 零散的无域资产（公共维度等）放在下方作为“水系外环”
+  const others = assets.filter((a) => !a.domain_code)
+  others.forEach((a, i) => {
+    const x = width * 0.5 + (i - others.length / 2) * 14
+    const y = height * 0.95
     nodes.push({
       id: 'a:' + a.id,
       name: a.asset_name,
-      symbolSize: 6 + Math.min(12, Math.sqrt(a.rows || 0) / 8),
-      itemStyle: { color: colorOf(a.domain_code), opacity: 0.85, shadowBlur: 12, shadowColor: colorOf(a.domain_code) },
+      x,
+      y,
+      symbolSize: 5,
+      itemStyle: { color: GROUP_COLORS[a.group_type], opacity: 0.7 },
       label: { show: false },
-      category: 'asset',
       asset: a,
-    })
-    links.push({
-      source: 'd:' + (a.domain_code || 'public'),
-      target: 'a:' + a.id,
-      lineStyle: { color: colorOf(a.domain_code), opacity: 0.25, width: 1 },
     })
   })
 
   return {
-    backgroundColor: '#06121f',
+    backgroundColor: 'transparent',
+    animation: false,
     tooltip: {
-      backgroundColor: 'rgba(8, 24, 40, 0.92)',
-      borderColor: 'rgba(61, 214, 245, 0.35)',
-      textStyle: { color: '#DCEBFF', fontSize: 12 },
+      backgroundColor: 'rgba(255, 255, 255, 0.96)',
+      borderColor: 'rgba(10, 132, 255, 0.25)',
+      textStyle: { color: '#0F2B46', fontSize: 12 },
       formatter: (p: any) => {
         const a = p.data?.asset
         if (!a) return p.name
@@ -225,19 +300,18 @@ function starOption() {
     series: [
       {
         type: 'graph',
-        layout: 'force',
+        layout: 'none',
         roam: true,
-        draggable: true,
-        force: { repulsion: 220, edgeLength: [40, 120], gravity: 0.08 },
-        emphasis: { focus: 'adjacency', lineStyle: { opacity: 0.7 } },
         data: nodes,
         links,
-        lineStyle: { curveness: 0.15 },
+        emphasis: { focus: 'adjacency' },
+        lineStyle: { opacity: 0.9 },
       },
     ],
   }
 }
 
+// ---------------- 矩阵 ----------------
 function matrixOption() {
   const assets = visibleAssets.value
   const children = data.value.domains
@@ -247,23 +321,23 @@ function matrixOption() {
       return {
         name: d.domain_name,
         value: items.reduce((s, a) => s + Math.max(a.rows || 0, 1), 0),
-        itemStyle: { color: colorOf(d.domain_code) },
+        itemStyle: { color: colorOf(d.domain_code), opacity: 0.85 },
         children: items.map((a) => ({
           name: a.asset_name,
           value: Math.max(a.rows || 0, 1),
           asset: a,
-          itemStyle: { color: colorOf(a.domain_code), opacity: 0.72 },
+          itemStyle: { color: assetColor(a), opacity: 0.55 },
         })),
       }
     })
     .filter(Boolean)
 
   return {
-    backgroundColor: '#06121f',
+    backgroundColor: 'transparent',
     tooltip: {
-      backgroundColor: 'rgba(8, 24, 40, 0.92)',
-      borderColor: 'rgba(61, 214, 245, 0.35)',
-      textStyle: { color: '#DCEBFF', fontSize: 12 },
+      backgroundColor: 'rgba(255, 255, 255, 0.96)',
+      borderColor: 'rgba(10, 132, 255, 0.25)',
+      textStyle: { color: '#0F2B46', fontSize: 12 },
       formatter: (p: any) => {
         const a = p.data?.asset
         if (!a) return p.name
@@ -280,9 +354,9 @@ function matrixOption() {
         height: '92%',
         top: '4%',
         left: '2%',
-        label: { color: '#F2F9FF', fontSize: 12 },
-        upperLabel: { show: true, color: '#CFE9FF', fontSize: 13, height: 22 },
-        itemStyle: { borderColor: 'rgba(6, 18, 31, 0.85)', borderWidth: 2, gapWidth: 2 },
+        label: { color: '#0F2B46', fontSize: 12 },
+        upperLabel: { show: true, color: '#0F2B46', fontSize: 13, height: 22 },
+        itemStyle: { borderColor: 'rgba(255, 255, 255, 0.9)', borderWidth: 2, gapWidth: 2 },
         levels: [
           { itemStyle: { borderWidth: 0, gapWidth: 4 } },
           { itemStyle: { borderWidth: 1, gapWidth: 2 } },
@@ -296,7 +370,8 @@ function matrixOption() {
 function renderChart() {
   if (!chartEl.value) return
   if (!chart) chart = echarts.init(chartEl.value)
-  chart.setOption(view.value === 'matrix' ? matrixOption() : starOption(), true)
+  const option = view.value === 'matrix' ? matrixOption() : waterOption()
+  chart.setOption(option, true)
   chart.off('click')
   chart.on('click', (p: any) => {
     if (p.data?.asset) onAssetClick(p.data.asset)
@@ -306,7 +381,7 @@ function renderChart() {
   })
 }
 
-// ---------------- city ----------------
+// ---------------- 城市 ----------------
 function drawCity() {
   const canvas = canvasEl.value
   if (!canvas) return
@@ -319,13 +394,12 @@ function drawCity() {
   const ctx = canvas.getContext('2d')!
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   const bg = ctx.createLinearGradient(0, 0, 0, rect.height)
-  bg.addColorStop(0, '#081726')
-  bg.addColorStop(1, '#04101a')
+  bg.addColorStop(0, '#F7FBFF')
+  bg.addColorStop(1, '#E8F3FE')
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, rect.width, rect.height)
 
   cityHits = []
-
   const domains = data.value.domains
   const cols = 5
   const rows = Math.ceil(domains.length / cols)
@@ -346,28 +420,26 @@ function drawCity() {
     const px = originX + (cellW - pw) / 2
     const py = originY + (cellH - ph) / 2
 
-    // 平台底板
     ctx.beginPath()
     ctx.roundRect(px, py, pw, ph, 12)
-    ctx.fillStyle = 'rgba(9, 28, 45, 0.55)'
+    ctx.fillStyle = items.length ? 'rgba(255, 255, 255, 0.92)' : 'rgba(255, 255, 255, 0.55)'
     ctx.fill()
     ctx.strokeStyle = color
-    ctx.globalAlpha = items.length ? 0.3 : 0.14
+    ctx.globalAlpha = items.length ? 0.35 : 0.15
     ctx.lineWidth = 1
     ctx.stroke()
     ctx.globalAlpha = 1
 
-    // 平台内标题
     ctx.save()
     ctx.beginPath()
     ctx.rect(px, py, pw, ph)
     ctx.clip()
     ctx.textAlign = 'left'
     ctx.font = '13px "PingFang SC", sans-serif'
-    ctx.fillStyle = items.length ? 'rgba(230, 244, 255, 0.95)' : 'rgba(180, 205, 225, 0.45)'
+    ctx.fillStyle = items.length ? '#0F2B46' : 'rgba(15, 43, 70, 0.35)'
     ctx.fillText(domain.domain_name, px + 12, py + 20, pw - 24)
     ctx.font = '11px "PingFang SC", sans-serif'
-    ctx.fillStyle = items.length ? color : 'rgba(140, 170, 195, 0.45)'
+    ctx.fillStyle = items.length ? color : 'rgba(15, 43, 70, 0.3)'
     ctx.fillText(`${items.length} 个资产`, px + 12, py + 36, pw - 24)
 
     if (!items.length) {
@@ -375,12 +447,11 @@ function drawCity() {
       return
     }
 
-    // 天际线：每域最多 10 栋，按行数排序
     const shown = items.slice(0, 10)
     const overflow = items.length - shown.length
     const maxRows = Math.max(...shown.map((a) => a.rows || 0), 1)
     const baseY = py + ph - 26
-    const maxH = ph * 0.56
+    const maxH = ph * 0.52
     const areaW = pw - 28
     const slot = areaW / shown.length
     const bw = Math.min(26, slot * 0.6)
@@ -388,27 +459,15 @@ function drawCity() {
     shown.forEach((asset, ai) => {
       const bx = px + 14 + ai * slot + (slot - bw) / 2
       const height = 8 + Math.sqrt((asset.rows || 0) / maxRows) * maxH
-
-      // 阴影
-      ctx.fillStyle = 'rgba(3, 10, 18, 0.75)'
-      ctx.fillRect(bx + 3, baseY - height + 4, bw, height)
-      // 建筑主体
-      ctx.fillStyle = color
-      ctx.globalAlpha = 0.92
+      const g = ctx.createLinearGradient(bx, baseY - height, bx, baseY)
+      g.addColorStop(0, 'rgba(255, 255, 255, 0.9)')
+      g.addColorStop(1, color)
+      ctx.fillStyle = g
+      ctx.globalAlpha = 0.9
       ctx.fillRect(bx, baseY - height, bw, height)
-      // 顶面
-      ctx.globalAlpha = 0.5
-      ctx.beginPath()
-      ctx.moveTo(bx, baseY - height)
-      ctx.lineTo(bx + bw * 0.22, baseY - height - bw * 0.2)
-      ctx.lineTo(bx + bw * 1.22, baseY - height - bw * 0.2)
-      ctx.lineTo(bx + bw, baseY - height)
-      ctx.closePath()
-      ctx.fill()
-      // 楼基
       ctx.globalAlpha = 1
-      ctx.fillStyle = 'rgba(3, 10, 18, 0.9)'
-      ctx.fillRect(bx, baseY, bw, 6)
+      ctx.fillStyle = 'rgba(10, 132, 255, 0.12)'
+      ctx.fillRect(bx, baseY, bw, 5)
 
       cityHits.push({ asset, x: bx, y: baseY - height, w: bw + 4, h: height + 8 })
     })
@@ -416,7 +475,7 @@ function drawCity() {
     if (overflow > 0) {
       ctx.textAlign = 'right'
       ctx.font = '11px "PingFang SC", sans-serif'
-      ctx.fillStyle = 'rgba(160, 195, 220, 0.75)'
+      ctx.fillStyle = 'rgba(15, 43, 70, 0.45)'
       ctx.fillText(`+${overflow}`, px + pw - 12, py + ph - 12)
     }
     ctx.restore()
@@ -441,7 +500,6 @@ function onCanvasMove(e: MouseEvent) {
   if (canvas) canvas.style.cursor = hit ? 'pointer' : 'default'
 }
 
-// ---------------- lifecycle ----------------
 let resizeObserver: ResizeObserver | null = null
 
 async function load() {
@@ -466,6 +524,7 @@ onMounted(async () => {
   if (chartEl.value) {
     resizeObserver = new ResizeObserver(() => {
       chart?.resize()
+      if (view.value === 'water') renderChart()
       if (view.value === 'city') drawCity()
     })
     resizeObserver.observe(chartEl.value.parentElement as Element)
@@ -484,45 +543,49 @@ onBeforeUnmount(() => {
   margin: -22px -26px;
   min-height: calc(100vh - 0px);
   padding: 22px 26px 18px;
-  background:
-    radial-gradient(1200px 600px at 20% -10%, rgba(10, 132, 255, 0.18), transparent 60%),
-    radial-gradient(900px 500px at 90% 10%, rgba(124, 108, 255, 0.14), transparent 55%),
-    linear-gradient(180deg, #06121f 0%, #04101a 100%);
-  color: #DCEBFF;
+  background: linear-gradient(180deg, #F5FAFF 0%, #EDF6FF 100%);
+  color: #0F2B46;
   border-radius: 16px;
 }
 .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
-.title { font-size: 24px; font-weight: 700; letter-spacing: 0.02em; }
-.subtitle { margin-top: 4px; font-size: 12.5px; color: #7FA3C4; }
+.title { font-size: 24px; font-weight: 700; letter-spacing: 0.02em; color: #0F2B46; }
+.subtitle { margin-top: 4px; font-size: 12.5px; color: #5B7083; }
 .kpis { display: flex; gap: 26px; }
-.kpi-value { font-size: 26px; font-weight: 700; color: #EAF6FF; font-variant-numeric: tabular-nums; text-shadow: 0 0 18px rgba(61, 214, 245, 0.45); }
-.kpi-label { font-size: 12px; color: #7FA3C4; margin-top: 2px; }
+.kpi-value { font-size: 26px; font-weight: 700; color: #0A84FF; font-variant-numeric: tabular-nums; }
+.kpi-label { font-size: 12px; color: #5B7083; margin-top: 2px; }
 .tools { display: flex; align-items: center; gap: 12px; }
-.switch { display: inline-flex; background: rgba(10, 30, 48, 0.7); border: 1px solid rgba(61, 214, 245, 0.22); border-radius: 10px; padding: 3px; }
-.switch button { background: transparent; border: 0; color: #8FB6D6; padding: 6px 14px; font-size: 12.5px; border-radius: 8px; cursor: pointer; }
-.switch button.active { background: linear-gradient(135deg, rgba(61, 214, 245, 0.28), rgba(10, 132, 255, 0.35)); color: #EAF6FF; }
-.search { width: 240px; background: rgba(10, 30, 48, 0.7); border: 1px solid rgba(61, 214, 245, 0.22); border-radius: 10px; padding: 8px 12px; color: #DCEBFF; outline: none; font-size: 12.5px; }
-.search::placeholder { color: #5F86A6; }
+.switch { display: inline-flex; background: #FFFFFF; border: 1px solid #DCEBFA; border-radius: 10px; padding: 3px; box-shadow: 0 2px 8px rgba(10, 132, 255, 0.06); }
+.switch button { background: transparent; border: 0; color: #5B7083; padding: 6px 14px; font-size: 12.5px; border-radius: 8px; cursor: pointer; }
+.switch button.active { background: linear-gradient(135deg, #EAF5FF, #D6EBFF); color: #0A84FF; font-weight: 600; }
+.search { width: 240px; background: #FFFFFF; border: 1px solid #DCEBFA; border-radius: 10px; padding: 8px 12px; color: #0F2B46; outline: none; font-size: 12.5px; }
+.search::placeholder { color: #93A8BC; }
 .stage-wrap { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
-.stage { position: relative; flex: 1; min-width: 0; height: calc(100vh - 230px); min-height: 460px; background: rgba(7, 22, 36, 0.55); border: 1px solid rgba(61, 214, 245, 0.14); border-radius: 16px; overflow: hidden; }
-.chart, .city { width: 100%; height: 100%; display: block; }
-.focus-chip { position: absolute; top: 14px; left: 16px; background: rgba(10, 30, 48, 0.85); border: 1px solid rgba(61, 214, 245, 0.3); padding: 6px 12px; border-radius: 999px; font-size: 12.5px; }
-.focus-chip button { margin-left: 10px; background: transparent; border: 0; color: #3DD6F5; cursor: pointer; font-size: 12.5px; }
-.empty-tip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #6E93B4; font-size: 13px; }
-.detail { width: 300px; flex-shrink: 0; background: rgba(9, 26, 42, 0.9); border: 1px solid rgba(61, 214, 245, 0.22); border-radius: 16px; padding: 18px; position: relative; backdrop-filter: blur(8px); }
-.detail-close { position: absolute; right: 14px; top: 10px; color: #6E93B4; cursor: pointer; font-size: 18px; }
-.detail-domain { font-size: 12px; color: #3DD6F5; }
-.detail-name { margin-top: 6px; font-size: 18px; font-weight: 700; line-height: 1.4; }
-.detail-code { margin-top: 4px; font-size: 11.5px; color: #7FA3C4; word-break: break-all; }
+.stage { position: relative; flex: 1; min-width: 0; height: calc(100vh - 230px); min-height: 480px; background: #FFFFFF; border: 1px solid #DCEBFA; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 24px rgba(10, 132, 255, 0.08); }
+.waves { position: absolute; inset: 0; pointer-events: none; background:
+  radial-gradient(600px 220px at 12% 18%, rgba(90, 200, 250, 0.14), transparent 65%),
+  radial-gradient(700px 260px at 85% 70%, rgba(10, 132, 255, 0.10), transparent 65%),
+  repeating-linear-gradient(0deg, transparent 0 46px, rgba(10, 132, 255, 0.04) 46px 47px);
+}
+.chart, .city { width: 100%; height: 100%; display: block; position: relative; }
+.river-legend { position: absolute; left: 18px; bottom: 14px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5B7083; background: rgba(255,255,255,0.75); padding: 6px 12px; border-radius: 999px; border: 1px solid #E1EEF9; }
+.river-legend i { width: 22px; height: 2px; background: linear-gradient(90deg, rgba(10,132,255,0.15), rgba(10,132,255,0.55)); border-radius: 2px; display: inline-block; }
+.focus-chip { position: absolute; top: 14px; left: 16px; background: #FFFFFF; border: 1px solid #DCEBFA; padding: 6px 12px; border-radius: 999px; font-size: 12.5px; color: #0F2B46; box-shadow: 0 2px 8px rgba(10, 132, 255, 0.08); }
+.focus-chip button { margin-left: 10px; background: transparent; border: 0; color: #0A84FF; cursor: pointer; font-size: 12.5px; }
+.empty-tip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #8FA8BC; font-size: 13px; }
+.detail { width: 300px; flex-shrink: 0; background: #FFFFFF; border: 1px solid #DCEBFA; border-radius: 16px; padding: 18px; position: relative; box-shadow: 0 6px 24px rgba(10, 132, 255, 0.08); }
+.detail-close { position: absolute; right: 14px; top: 10px; color: #93A8BC; cursor: pointer; font-size: 18px; }
+.detail-domain { font-size: 12px; color: #0A84FF; }
+.detail-name { margin-top: 6px; font-size: 18px; font-weight: 700; line-height: 1.4; color: #0F2B46; }
+.detail-code { margin-top: 4px; font-size: 11.5px; color: #5B7083; word-break: break-all; }
 .detail-grid { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.detail-grid div { font-size: 13px; color: #DCEBFF; }
-.detail-grid span { display: block; font-size: 11.5px; color: #6E93B4; margin-bottom: 2px; }
+.detail-grid div { font-size: 13px; color: #0F2B46; }
+.detail-grid span { display: block; font-size: 11.5px; color: #5B7083; margin-bottom: 2px; }
 .detail-actions { margin-top: 20px; display: flex; flex-direction: column; gap: 8px; }
-.detail-actions button { background: rgba(10, 30, 48, 0.9); border: 1px solid rgba(61, 214, 245, 0.28); color: #CFE9FF; padding: 9px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; }
-.detail-actions button.primary { background: linear-gradient(135deg, rgba(61, 214, 245, 0.35), rgba(10, 132, 255, 0.5)); border-color: transparent; color: #F2FAFF; font-weight: 600; }
+.detail-actions button { background: #F5FAFF; border: 1px solid #DCEBFA; color: #0F2B46; padding: 9px 12px; border-radius: 10px; cursor: pointer; font-size: 13px; }
+.detail-actions button.primary { background: linear-gradient(135deg, #5AC8FA, #0A84FF); border-color: transparent; color: #FFFFFF; font-weight: 600; }
 .legend { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 4px; }
-.legend-item { display: inline-flex; align-items: center; gap: 7px; background: rgba(9, 26, 42, 0.7); border: 1px solid rgba(61, 214, 245, 0.16); color: #A9CBE6; border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
-.legend-item i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px currentColor; }
-.legend-item em { font-style: normal; color: #5F86A6; }
+.legend-item { display: inline-flex; align-items: center; gap: 7px; background: #FFFFFF; border: 1px solid #E1EEF9; color: #0F2B46; border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.legend-item i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.legend-item em { font-style: normal; color: #5B7083; }
 .legend-item.dim { opacity: 0.35; }
 </style>
