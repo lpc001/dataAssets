@@ -23,7 +23,8 @@
 
     <main class="stage-wrap">
       <div class="stage">
-        <div class="waves"></div>
+        <WaterCycleBg class="water-bg" />
+        <div class="veil"></div>
         <div v-show="view !== 'city'" ref="chartEl" class="chart"></div>
         <canvas
           v-show="view === 'city'"
@@ -82,25 +83,27 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { fetchDataMap, type DataMap, type MapAsset } from '@/api/catalog'
+import WaterCycleBg from '@/components/WaterCycleBg.vue'
 
 // 品牌蓝为锚点，向青/紫/绿/琥珀发散的水务谱系：既有区分度，又不会全蓝疲劳
 const PALETTE = ['#0A84FF', '#12A8D8', '#4F7CFF', '#7C6CF0', '#9B7CFF', '#17A2B8', '#2BB39B', '#5B8DEF', '#E0A23F', '#6FA84F']
 const GROUP_COLORS: Record<string, string> = { PUBLIC: '#7FA3C4', TOPIC: '#6C8CFF', OTHER: '#8FA8C4', DOMAIN: '#0A84FF' }
 
 // 水务价值链顺序：源头 → 制水 → 输配 → 计量收费 → 服务 → 排水
+// 锚点与底图设施一一对应（水厂/泵站/管网/城市/客服/污水厂/监测点/维护基地/工地/排放口）
 const CHAIN_POS: Record<string, [number, number]> = {
-  prd: [0.1, 0.3],
-  dsp: [0.26, 0.68],
-  net: [0.44, 0.3],
-  mkt: [0.6, 0.68],
-  svc: [0.78, 0.3],
-  drn: [0.92, 0.62],
+  prd: [0.355, 0.17],
+  dsp: [0.44, 0.52],
+  net: [0.53, 0.35],
+  mkt: [0.66, 0.35],
+  svc: [0.84, 0.32],
+  drn: [0.67, 0.67],
 }
 const EXTRA_POS: Record<string, [number, number]> = {
-  wqm: [0.16, 0.86],
-  ast: [0.42, 0.88],
-  prj: [0.7, 0.86],
-  she: [0.88, 0.86],
+  wqm: [0.097, 0.70],
+  ast: [0.373, 0.72],
+  prj: [0.537, 0.73],
+  she: [0.85, 0.69],
 }
 
 const data = ref<DataMap>({ domain_count: 0, asset_count: 0, column_count: 0, published_count: 0, domains: [], assets: [] })
@@ -222,10 +225,10 @@ function waterOption() {
       label: {
         show: true,
         position: 'bottom',
-        distance: 8,
-        color: empty ? 'rgba(15, 43, 70, 0.35)' : '#0F2B46',
-        fontSize: 12,
-        fontWeight: 600,
+        distance: empty ? 4 : 12,
+        color: empty ? 'rgba(15, 43, 70, 0.32)' : '#0F2B46',
+        fontSize: empty ? 11 : 12,
+        fontWeight: empty ? 400 : 600,
       },
     })
 
@@ -251,21 +254,6 @@ function waterOption() {
       })
     })
   })
-
-  // 水脉主线：按价值链串联各域，形成从源头到排水的流向
-  const chainOrder = ['prd', 'dsp', 'net', 'mkt', 'svc', 'drn']
-  for (let i = 0; i < chainOrder.length - 1; i += 1) {
-    const from = chainOrder[i]
-    const to = chainOrder[i + 1]
-    if (!data.value.domains.some((d) => d.domain_code === from)) continue
-    if (!data.value.domains.some((d) => d.domain_code === to)) continue
-    links.unshift({
-      source: 'd:' + from,
-      target: 'd:' + to,
-      lineStyle: { color: 'rgba(10, 132, 255, 0.12)', width: 9, curveness: 0.18, opacity: 0.9 },
-      silent: true,
-    })
-  }
 
   // 零散的无域资产（公共维度等）放在下方作为“水系外环”
   const others = assets.filter((a) => !a.domain_code)
@@ -561,12 +549,9 @@ onBeforeUnmount(() => {
 .search::placeholder { color: #93A8BC; }
 .stage-wrap { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
 .stage { position: relative; flex: 1; min-width: 0; height: calc(100vh - 230px); min-height: 480px; background: #FFFFFF; border: 1px solid #DCEBFA; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 24px rgba(10, 132, 255, 0.08); }
-.waves { position: absolute; inset: 0; pointer-events: none; background:
-  radial-gradient(600px 220px at 12% 18%, rgba(90, 200, 250, 0.14), transparent 65%),
-  radial-gradient(700px 260px at 85% 70%, rgba(10, 132, 255, 0.10), transparent 65%),
-  repeating-linear-gradient(0deg, transparent 0 46px, rgba(10, 132, 255, 0.04) 46px 47px);
-}
-.chart, .city { width: 100%; height: 100%; display: block; position: relative; }
+.water-bg { position: absolute; inset: 0; }
+.veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,0.42), rgba(255,255,255,0.56)); pointer-events: none; }
+.chart, .city { width: 100%; height: 100%; display: block; position: relative; z-index: 2; }
 .river-legend { position: absolute; left: 18px; bottom: 14px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5B7083; background: rgba(255,255,255,0.75); padding: 6px 12px; border-radius: 999px; border: 1px solid #E1EEF9; }
 .river-legend i { width: 22px; height: 2px; background: linear-gradient(90deg, rgba(10,132,255,0.15), rgba(10,132,255,0.55)); border-radius: 2px; display: inline-block; }
 .focus-chip { position: absolute; top: 14px; left: 16px; background: #FFFFFF; border: 1px solid #DCEBFA; padding: 6px 12px; border-radius: 999px; font-size: 12.5px; color: #0F2B46; box-shadow: 0 2px 8px rgba(10, 132, 255, 0.08); }
